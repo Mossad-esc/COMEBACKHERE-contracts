@@ -15,6 +15,8 @@ The Invoice contract manages the lifecycle of merchant invoices, from creation t
 | `release_escrow`     | `admin`       | `admin: Address, id: u64`                                                                                                                                        | `Result<(), InvoiceError>`            | `Unauthorized`, `ContractPaused`, `NotFound`, `NotPaid`                                                   |
 | `get_invoice`        | None          | `id: u64`                                                                                                                                                        | `Result<Invoice, InvoiceError>`       | `NotFound`                                                                                                |
 | `get_invoice_status` | None          | `id: u64`                                                                                                                                                        | `Result<InvoiceStatus, InvoiceError>` | `NotFound`                                                                                                |
+| `get_invoice_summary` | None         | `id: u64`                                                                                                                                                        | `Result<InvoiceSummary, InvoiceError>`  | `NotFound`                                                                                                |
+| `get_invoices_by_merchant` | None     | `merchant: Address, start: u32, limit: u32`                                                                                                                     | `Vec<u64>`                              | None                                                                                                     |
 | `batch_get_invoice_status` | None    | `ids: Vec<u64>`                                                                                                                                                  | `Vec<Result<InvoiceStatus, InvoiceError>>` | Per-ID `NotFound`                                                                                     |
 | `cancel_invoice`     | `caller`      | `caller: Address, id: u64`                                                                                                                                       | `Result<(), InvoiceError>`            | `Unauthorized`, `ContractPaused`, `NotFound`, `NotPending`                                                |
 | `batch_expire`       | `admin`       | `admin: Address, ids: Vec<u64>`                                                                                                                                  | `Result<u32, InvoiceError>`           | `Unauthorized`                                                                                            |
@@ -22,6 +24,28 @@ The Invoice contract manages the lifecycle of merchant invoices, from creation t
 | `reject_refund`      | `admin`       | `admin: Address, id: u64`                                                                                                                                        | `Result<(), InvoiceError>`            | `Unauthorized`, `ContractPaused`, `NotFound`, `NotRefundRequested`                                        |
 | `pause`              | `admin`       | `admin: Address`                                                                                                                                                 | `Result<(), InvoiceError>`            | `Unauthorized`                                                                                            |
 | `unpause`            | `admin`       | `admin: Address`                                                                                                                                                 | `Result<(), InvoiceError>`            | `Unauthorized`                                                                                            |
+
+## Invoice summaries and outstanding balances
+
+`get_invoice_summary` returns an `InvoiceSummary`: the list-view projection of an
+invoice (`id`, `status`, `amount_usdc`, `gross_usdc`, `paid_usdc`,
+`remaining_usdc`, `expires_at`). It is derived from the same storage record
+`get_invoice` reads, so it can never disagree with the full record, and it is
+the cheap way for a wallet to show "still owed" without replaying events.
+
+`remaining_usdc` is the gross amount the payer still owes:
+
+| Status | `paid_usdc` | `remaining_usdc` |
+| --- | --- | --- |
+| `Pending` | `0` | `gross_usdc` (amendments are reflected) |
+| `Paid`, `RefundRequested`, `Released`, `Refunded` | `gross_usdc` | `0` |
+| `Expired`, `Cancelled` | `0` | `0` (no longer collectible) |
+
+Partial payments are not recorded on-chain yet (`mark_paid` is all-or-nothing), so
+there is no intermediate partially-paid state: the figure drops from the full
+`gross_usdc` to `0` when `mark_paid` fires. Once per-invoice collected-amount
+accounting lands, this field reports the shortfall with no change to the rest of
+the summary.
 
 ## Merchant nonce lifecycle
 

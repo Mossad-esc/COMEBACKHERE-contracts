@@ -6,7 +6,7 @@ use crate::validation::{
 use crate::{append_history, pending_index_add, pending_index_remove};
 use crate::{
     DataKey, Invoice, InvoiceContract, InvoiceContractArgs, InvoiceContractClient, InvoiceError,
-    InvoiceStatus, MaybeAddress, MaybeBytes,
+    InvoiceStatus, InvoiceSummary, MaybeAddress, MaybeBytes,
 };
 use soroban_sdk::{contractimpl, Address, Env, Vec};
 
@@ -209,6 +209,22 @@ impl InvoiceContract {
             .get(&DataKey::Invoice(id))
             .ok_or(InvoiceError::NotFound)?;
         Ok(invoice.status)
+    }
+
+    /// #712: lightweight invoice view for list screens.
+    ///
+    /// Returns the row fields a wallet needs - id, status, amount, expiry - plus
+    /// `paid_usdc`/`remaining_usdc` so how much a payer still owes is readable
+    /// in one call instead of by replaying `invoice_paid` and refund events.
+    /// Reads the same `DataKey::Invoice` record as `get_invoice`, so it can never
+    /// disagree with the full record.
+    pub fn get_invoice_summary(env: Env, id: u64) -> Result<InvoiceSummary, InvoiceError> {
+        let invoice: Invoice = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Invoice(id))
+            .ok_or(InvoiceError::NotFound)?;
+        Ok(InvoiceSummary::from(&invoice))
     }
 
     /// Return one status result per ID, preserving input order.

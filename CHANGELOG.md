@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Invoice Contract
+- `get_invoice_summary` (#712): returns an `InvoiceSummary` — the list-view projection of an invoice plus `paid_usdc`/`remaining_usdc`, so a client can read how much a payer still owes in one call instead of replaying `invoice_paid` and refund events. Derived from the same storage record as `get_invoice`, so the two can never disagree.
+
 #### Treasury Contract
 - Timelocked signer and threshold-configuration changes (#447). Admin calls to `set_signer`, `remove_signer`, and `update_threshold` can now be queued via `propose_signer_change` with a 24-hour delay enforced by `execute_signer_change`; any admin can cancel the queued change within that window via `cancel_signer_change`. This restores a meaningful reaction window against a single-compromised-admin-key scenario that the pre-existing immediate entrypoints lacked.
 

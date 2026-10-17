@@ -82,6 +82,81 @@ pub struct Invoice {
     pub token_address: MaybeAddress,
 }
 
+/// Gross amount already received from the payer on `invoice`.
+///
+/// `mark_paid` is all-or-nothing, so the only thing that has ever moved funds is
+/// the transition into a paid state: `gross_usdc` from `Paid` onwards, and `0`
+/// before that. Refunds pay the payer *out*, so `Refunded` keeps reporting the
+/// gross that was collected rather than treating the refund as a negative
+/// contribution.
+fn collected_usdc(invoice: &Invoice) -> i128 {
+    match invoice.status {
+        InvoiceStatus::Paid
+        | InvoiceStatus::RefundRequested
+        | InvoiceStatus::Released
+        | InvoiceStatus::Refunded => invoice.gross_usdc,
+        InvoiceStatus::Pending | InvoiceStatus::Expired | InvoiceStatus::Cancelled => 0,
+    }
+}
+
+/// Gross amount still owed on `invoice`, i.e. what the payer has yet to pay.
+///
+/// While an invoice is `Pending` the payer owes the whole `gross_usdc` (the
+/// amount the merchant receives plus its fee); once funds have moved, or once
+/// the invoice is no longer collectible (`Expired`, `Cancelled`), nothing is
+/// outstanding. Partial payments are not recorded on-chain today (no
+/// per-invoice collected-amount accounting exists), so an invoice has no
+/// intermediate partially-paid state to report here: the figure goes from the
+/// full `gross_usdc` to `0` when `mark_paid` fires. Clients that need
+/// finer-grained progress keep replaying `invoice_paid`/refund events today,
+/// and this field picks up partial amounts with no change to the summary's
+/// shape once that accounting lands (#712).
+fn outstanding_usdc(invoice: &Invoice) -> i128 {
+    match invoice.status {
+        // An expired or cancelled invoice can no longer be paid, so nothing is owed.
+        InvoiceStatus::Expired | InvoiceStatus::Cancelled => 0,
+        _ => (invoice.gross_usdc - collected_usdc(invoice)).max(0),
+    }
+}
+
+/// Lightweight, read-only projection of an [`Invoice`] for list views.
+///
+/// Carries only the fields a wallet needs to render a row, and adds the two
+/// amounts (#712): `paid_usdc` and the outstanding `remaining_usdc`, so a
+/// partially-settled or fully-settled invoice can be shown without replaying
+/// events. It is derived from the same `DataKey::Invoice` record `get_invoice`
+/// reads - never a second copy - so it can never drift out of sync with the
+/// full record.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InvoiceSummary {
+    pub id: u64,
+    pub status: InvoiceStatus,
+    /// Net amount the merchant receives once escrow is released.
+    pub amount_usdc: i128,
+    /// Total amount charged to the payer, fee included.
+    pub gross_usdc: i128,
+    /// Gross amount collected so far; 0 until funds move.
+    pub paid_usdc: i128,
+    /// Gross amount still owed to the merchant by the payer.
+    pub remaining_usdc: i128,
+    pub expires_at: u64,
+}
+
+impl From<&Invoice> for InvoiceSummary {
+    fn from(invoice: &Invoice) -> Self {
+        InvoiceSummary {
+            id: invoice.id,
+            status: invoice.status.clone(),
+            amount_usdc: invoice.amount_usdc,
+            gross_usdc: invoice.gross_usdc,
+            paid_usdc: collected_usdc(invoice),
+            remaining_usdc: outstanding_usdc(invoice),
+            expires_at: invoice.expires_at,
+        }
+    }
+}
+
 /// Parameters for a single invoice within a batch_create_invoice call.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
