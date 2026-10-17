@@ -10,6 +10,12 @@ pub const MAX_BATCH_SIZE: u32 = 50;
 /// Maximum number of invoice IDs accepted by batch_expire per call.
 pub const MAX_BATCH_EXPIRE: u32 = 100;
 
+/// Ledger-count threshold below which a persistent entry's TTL is extended.
+/// Mirrors the single-item entrypoints (create_invoice / mark_paid / etc.).
+pub const INVOICE_TTL_THRESHOLD: u32 = 518_400; // ~30 days at 5s/ledger
+/// Ledger-count a persistent entry's TTL is extended to once it is bumped.
+pub const INVOICE_TTL_EXTEND_TO: u32 = 1_036_800; // ~60 days at 5s/ledger
+
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[repr(u32)]
