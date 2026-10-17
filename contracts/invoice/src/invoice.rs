@@ -54,6 +54,8 @@ pub enum InvoiceError {
     CooldownActive = 21,
     /// InvoiceCount overflow would wrap the next invoice ID.
     InvoiceCountOverflow = 22,
+    /// fee_bps passed to calculate_net_refund is out of the valid [0, 10_000] range.
+    InvalidFeeBps = 23,
 }
 
 #[contracttype]

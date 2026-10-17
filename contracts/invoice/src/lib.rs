@@ -9,9 +9,11 @@
 mod entrypoints;
 mod events;
 mod invoice;
+mod refund;
 mod validation;
 
 pub use events::{EscrowReleasedEvent, InvoiceAmountUpdatedEvent, InvoiceExpiryExtendedEvent};
+pub use refund::calculate_net_refund;
 use invoice::StatusTransition;
 pub use invoice::{
     BatchInvoiceParams, DataKey, Invoice, InvoiceError, InvoiceStatus, MaybeAddress, MaybeBytes,

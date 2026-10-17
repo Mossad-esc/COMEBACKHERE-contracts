@@ -1,0 +1,29 @@
+name: Fuzz
+
+on:
+  schedule:
+    # Nightly, bounded run so CI cost stays predictable.
+    - cron: "0 4 * * *"
+  workflow_dispatch: {}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [amount_precision, net_refund]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust nightly toolchain
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      - name: Run ${{ matrix.target }} fuzz target
+        working-directory: contracts/invoice/fuzz
+        run: cargo fuzz run ${{ matrix.target }} -- -max_total_time=300
