@@ -150,6 +150,11 @@ pub enum DataKey {
     CreationCooldown,
     /// Timestamp of the last successful create_invoice call for a given merchant.
     LastCreatedAt(Address),
+    /// Admin-tunable global cap on open (non-terminal) invoices per merchant.
+    MaxOpenInvoices,
+    /// Admin-tunable per-merchant override of `MaxOpenInvoices`. When absent,
+    /// the merchant falls back to the global cap.
+    MerchantMaxOpenInvoices(Address),
 }
 
 impl InvoiceStatus {

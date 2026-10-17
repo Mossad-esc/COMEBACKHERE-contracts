@@ -1,5 +1,5 @@
 use crate::events;
-use crate::events::InvoiceExpiryExtendedEvent;
+use crate::events::{InvoiceExpiryExtendedEvent, MerchantMaxOpenInvoicesUpdatedEvent};
 use crate::validation::require_admin;
 use crate::{DataKey, Invoice, InvoiceContract, InvoiceError, InvoiceStatus};
 use soroban_sdk::{contractimpl, Address, Env};
@@ -116,5 +116,68 @@ impl InvoiceContract {
             },
         );
         Ok(())
+    }
+
+    // --- #715: per-merchant open-invoice limit override ---
+
+    /// Set the global cap on open (non-terminal) invoices per merchant.
+    /// Merchants without a per-merchant override (see `set_merchant_max_open_invoices`)
+    /// use this value.
+    pub fn set_max_open_invoices(env: Env, admin: Address, limit: u64) -> Result<(), InvoiceError> {
+        require_admin(&env, &admin)?;
+        env.storage()
+            .instance()
+            .set(&DataKey::MaxOpenInvoices, &limit);
+        Ok(())
+    }
+
+    /// Return the current global open-invoice cap (0 if never set, meaning unlimited).
+    pub fn get_max_open_invoices(env: Env) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKey::MaxOpenInvoices)
+            .unwrap_or(0u64)
+    }
+
+    /// Set a per-merchant override of the open-invoice cap. Pass `None` to clear
+    /// the override, falling back to the global cap. Admin-only.
+    pub fn set_merchant_max_open_invoices(
+        env: Env,
+        admin: Address,
+        merchant: Address,
+        limit: Option<u64>,
+    ) -> Result<(), InvoiceError> {
+        require_admin(&env, &admin)?;
+        let key = DataKey::MerchantMaxOpenInvoices(merchant.clone());
+        match limit {
+            Some(limit) => {
+                env.storage().persistent().set(&key, &limit);
+            }
+            None => {
+                env.storage().persistent().remove(&key);
+            }
+        }
+        events::merchant_max_open_invoices_updated(
+            &env,
+            &MerchantMaxOpenInvoicesUpdatedEvent {
+                merchant,
+                new_limit: limit,
+            },
+        );
+        Ok(())
+    }
+
+    /// Return the effective open-invoice cap for `merchant`: the per-merchant
+    /// override if one is set, otherwise the global cap.
+    pub fn get_max_open_invoices_for(env: Env, merchant: Address) -> u64 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::MerchantMaxOpenInvoices(merchant))
+            .unwrap_or_else(|| {
+                env.storage()
+                    .instance()
+                    .get(&DataKey::MaxOpenInvoices)
+                    .unwrap_or(0u64)
+            })
     }
 }

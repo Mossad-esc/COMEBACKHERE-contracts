@@ -117,6 +117,28 @@ pub fn invoice_expiry_extended(env: &Env, event: &InvoiceExpiryExtendedEvent) {
     );
 }
 
+/// Emitted when a merchant's per-merchant open-invoice override is set or cleared.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MerchantMaxOpenInvoicesUpdatedEvent {
+    pub merchant: Address,
+    /// `None` when the override was cleared (merchant falls back to the global cap).
+    pub new_limit: Option<u64>,
+}
+
+pub fn merchant_max_open_invoices_updated(
+    env: &Env,
+    event: &MerchantMaxOpenInvoicesUpdatedEvent,
+) {
+    env.events().publish(
+        (
+            Symbol::new(env, "merchant_max_open_invoices_updated"),
+            event.merchant.clone(),
+        ),
+        event.clone(),
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::{invoice_expiry_extended, InvoiceExpiryExtendedEvent};
