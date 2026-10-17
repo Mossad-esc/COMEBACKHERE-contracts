@@ -151,3 +151,61 @@ pub enum DataKey {
     /// Timestamp of the last successful create_invoice call for a given merchant.
     LastCreatedAt(Address),
 }
+
+impl InvoiceStatus {
+    /// Returns true if this status is terminal: the invoice can no longer
+    /// transition to any other status. Adding a new `InvoiceStatus` variant
+    /// forces a deliberate decision here because the match below has no
+    /// wildcard arm.
+    pub fn is_terminal(&self) -> bool {
+        match self {
+            InvoiceStatus::Pending => false,
+            InvoiceStatus::Paid => false,
+            InvoiceStatus::Expired => true,
+            InvoiceStatus::Cancelled => true,
+            InvoiceStatus::RefundRequested => false,
+            InvoiceStatus::Released => true,
+            InvoiceStatus::Refunded => true,
+        }
+    }
+}
+
+#[cfg(test)]
+mod is_terminal_tests {
+    use super::InvoiceStatus;
+
+    /// Exhaustively checks every `InvoiceStatus` variant against the expected
+    /// terminal/non-terminal classification via an exhaustive match with no
+    /// wildcard arm, so adding a new variant without updating this test (and
+    /// `is_terminal` itself) fails to compile.
+    #[test]
+    fn is_terminal_covers_every_variant() {
+        let variants = [
+            InvoiceStatus::Pending,
+            InvoiceStatus::Paid,
+            InvoiceStatus::Expired,
+            InvoiceStatus::Cancelled,
+            InvoiceStatus::RefundRequested,
+            InvoiceStatus::Released,
+            InvoiceStatus::Refunded,
+        ];
+
+        for status in variants {
+            let expected = match status {
+                InvoiceStatus::Pending => false,
+                InvoiceStatus::Paid => false,
+                InvoiceStatus::Expired => true,
+                InvoiceStatus::Cancelled => true,
+                InvoiceStatus::RefundRequested => false,
+                InvoiceStatus::Released => true,
+                InvoiceStatus::Refunded => true,
+            };
+            assert_eq!(
+                status.is_terminal(),
+                expected,
+                "unexpected is_terminal() result for {:?}",
+                status
+            );
+        }
+    }
+}
