@@ -14,6 +14,7 @@
 // - Optional types (Option<u64>) serialize to null or value
 
 use crate::invoice::Invoice;
+use crate::template::InvoiceTemplate;
 use soroban_sdk::{Address, Env, Symbol};
 
 pub fn invoice_created(env: &Env, id: u64, invoice: &Invoice) {
@@ -46,6 +47,29 @@ pub fn invoice_refund_requested(env: &Env, id: u64, invoice: &Invoice) {
 pub fn escrow_released(env: &Env, id: u64, invoice: &Invoice) {
     env.events()
         .publish((Symbol::new(env, "escrow_released"), id), invoice.clone());
+}
+
+pub fn template_created(env: &Env, id: u64, template: &InvoiceTemplate) {
+    env.events()
+        .publish((Symbol::new(env, "template_created"), id), template.clone());
+}
+
+/// A template was activated or deactivated: data is the new `active` flag.
+pub fn template_activated(env: &Env, id: u64, active: bool) {
+    env.events()
+        .publish((Symbol::new(env, "template_activated"), id), active);
+}
+
+/// The keeper generated an invoice: topics are the template id and invoice id.
+pub fn template_generated(env: &Env, template_id: u64, invoice_id: u64) {
+    env.events().publish(
+        (
+            Symbol::new(env, "template_generated"),
+            template_id,
+            invoice_id,
+        ),
+        (),
+    );
 }
 
 pub fn contract_paused(env: &Env, admin: &Address) {
