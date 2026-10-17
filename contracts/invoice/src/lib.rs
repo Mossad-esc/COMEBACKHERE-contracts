@@ -11,7 +11,9 @@ mod events;
 mod invoice;
 mod validation;
 
-pub use events::{EscrowReleasedEvent, InvoiceAmountUpdatedEvent, InvoiceExpiryExtendedEvent};
+pub use events::{
+    EscrowReleasedEvent, InvoiceAmountUpdatedEvent, InvoiceCreatedEvent, InvoiceExpiryExtendedEvent,
+};
 use invoice::StatusTransition;
 pub use invoice::{
     BatchInvoiceParams, DataKey, Invoice, InvoiceError, InvoiceStatus, MaybeAddress, MaybeBytes,

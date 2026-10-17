@@ -13,8 +13,22 @@
 // - Structs (Invoice) serialize to JSON objects with field keys
 // - Optional types (Option<u64>) serialize to null or value
 
-use crate::invoice::Invoice;
+use crate::invoice::{Invoice, MaybeAddress};
 use soroban_sdk::{contracttype, Address, Env, Symbol};
+
+/// Payload for `invoice_created`. Carries `token_address` explicitly (schema v2)
+/// so indexers can learn the settlement asset without re-fetching the invoice.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InvoiceCreatedEvent {
+    pub id: u64,
+    pub merchant: Address,
+    pub amount_usdc: i128,
+    pub gross_usdc: i128,
+    pub expires_at: u64,
+    pub merchant_nonce: u64,
+    pub token_address: MaybeAddress,
+}
 
 /// Emitted when an amendment changes an invoice's amount fields.
 #[contracttype]
@@ -36,8 +50,17 @@ pub struct InvoiceExpiryExtendedEvent {
 }
 
 pub fn invoice_created(env: &Env, id: u64, invoice: &Invoice) {
+    let payload = InvoiceCreatedEvent {
+        id,
+        merchant: invoice.merchant.clone(),
+        amount_usdc: invoice.amount_usdc,
+        gross_usdc: invoice.gross_usdc,
+        expires_at: invoice.expires_at,
+        merchant_nonce: invoice.merchant_nonce,
+        token_address: invoice.token_address.clone(),
+    };
     env.events()
-        .publish((Symbol::new(env, "invoice_created"), id), invoice.clone());
+        .publish((Symbol::new(env, "invoice_created"), id), payload);
 }
 
 pub fn invoice_paid(env: &Env, id: u64, invoice: &Invoice) {

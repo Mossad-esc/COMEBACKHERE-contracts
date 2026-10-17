@@ -38,7 +38,7 @@ event topic as the stream key:
 
 | Event | Status represented | Data |
 | --- | --- | --- |
-| `invoice_created` | `Pending` | Full `Invoice` |
+| `invoice_created` | `Pending` | `InvoiceCreatedEvent { id, merchant, amount_usdc, gross_usdc, expires_at, merchant_nonce, token_address }` (schema v2; see `docs/event-schema.md`) |
 | `invoice_paid` | `Paid` | Full `Invoice` |
 | `invoice_expired` | `Expired` | Full `Invoice` |
 | `invoice_cancelled` | `Cancelled` | Full `Invoice` |
