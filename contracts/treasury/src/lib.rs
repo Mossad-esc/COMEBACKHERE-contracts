@@ -89,21 +89,59 @@ impl TreasuryContract {
     }
 
     /// Pauses the contract, blocking all state-mutating operations except admin functions (admin-only).
+    /// Stores `reason` and emits it alongside the pausing admin.
+    /// Errors: `Unauthorized`.
     /// Emits: `treasury_paused`.
-    pub fn pause(env: Env, admin: Address) {
-        require_admin(&env, &admin);
+    pub fn pause(env: Env, admin: Address, reason: Symbol) -> Result<(), TreasuryError> {
+        if !is_admin(&env, &admin) {
+            return Err(TreasuryError::Unauthorized);
+        }
+        admin.require_auth();
         env.storage().instance().set(&DataKey::Paused, &true);
-        env.events()
-            .publish((Symbol::new(&env, "treasury_paused"),), admin);
+        env.storage().instance().set(&DataKey::PauseReason, &reason);
+        env.events().publish(
+            (Symbol::new(&env, "treasury_paused"),),
+            (admin, reason),
+        );
+        Ok(())
     }
 
     /// Resumes normal operations after a pause (admin-only).
+    /// Errors: `Unauthorized`.
     /// Emits: `treasury_unpaused`.
-    pub fn unpause(env: Env, admin: Address) {
-        require_admin(&env, &admin);
+    pub fn unpause(env: Env, admin: Address, reason: Symbol) -> Result<(), TreasuryError> {
+        if !is_admin(&env, &admin) {
+            return Err(TreasuryError::Unauthorized);
+        }
+        admin.require_auth();
         env.storage().instance().set(&DataKey::Paused, &false);
-        env.events()
-            .publish((Symbol::new(&env, "treasury_unpaused"),), admin);
+        env.storage().instance().set(&DataKey::PauseReason, &reason);
+        env.events().publish(
+            (Symbol::new(&env, "treasury_unpaused"),),
+            (admin, reason),
+        );
+        Ok(())
+    }
+
+    /// Returns the current multisig approval threshold.
+    pub fn get_threshold(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::Threshold)
+            .unwrap_or(0)
+    }
+
+    /// Returns whether the contract is currently paused.
+    pub fn is_paused(env: Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false)
+    }
+
+    /// Returns the current admin address.
+    pub fn get_admin(env: Env) -> Address {
+        env.storage().instance().get(&DataKey::Admin).unwrap()
     }
 }
 
@@ -116,6 +154,12 @@ pub(crate) fn require_admin(env: &Env, admin: &Address) {
     if stored != *admin {
         panic!("Unauthorized");
     }
+}
+
+/// Returns whether `admin` matches the stored admin, without requiring auth.
+pub(crate) fn is_admin(env: &Env, admin: &Address) -> bool {
+    let stored: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+    stored == *admin
 }
 
 pub(crate) fn require_not_paused(env: &Env) {

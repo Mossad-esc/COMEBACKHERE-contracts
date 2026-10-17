@@ -311,7 +311,7 @@ fn scenario_invoice_pause_unpause_full_lifecycle_recovers() {
 #[should_panic(expected = "ContractPaused")]
 fn scenario_treasury_paused_blocks_propose_settlement() {
     let f = setup();
-    f.treasury.pause(&f.admin);
+    f.treasury.pause(&f.admin, &soroban_sdk::Symbol::new(&env, "test"));
     // This must panic with "ContractPaused"
     f.treasury.propose_settlement(&f.admin, &f.merchant, &10_000_000);
 }
@@ -324,7 +324,7 @@ fn scenario_treasury_paused_blocks_execute_settlement() {
     f.compliance.allow_address(&f.admin, &f.merchant);
     let sid = f.treasury.propose_settlement(&f.admin, &f.merchant, &10_000_000);
     // Pause AFTER proposal
-    f.treasury.pause(&f.admin);
+    f.treasury.pause(&f.admin, &soroban_sdk::Symbol::new(&env, "test"));
     // This must panic with "ContractPaused"
     f.treasury.execute_settlement(&f.admin, &sid, &f.token_id);
 }
@@ -341,7 +341,7 @@ fn scenario_treasury_paused_invoice_and_compliance_unaffected() {
     f.compliance.allow_address(&f.admin, &f.merchant);
 
     // Pause treasury
-    f.treasury.pause(&f.admin);
+    f.treasury.pause(&f.admin, &soroban_sdk::Symbol::new(&env, "test"));
 
     // Invoice operations are unaffected — mark_paid succeeds
     let mark_result = f.invoice.try_mark_paid(&f.admin, &inv_id, &payer, &MaybeBytes::None, &MaybeAddress::None);
@@ -374,7 +374,7 @@ fn scenario_treasury_pause_unpause_full_lifecycle_recovers() {
     f.compliance.allow_address(&f.admin, &f.merchant);
 
     // Pause treasury before any settlement
-    f.treasury.pause(&f.admin);
+    f.treasury.pause(&f.admin, &soroban_sdk::Symbol::new(&env, "test"));
 
     // Invoice and compliance remain usable
     let inv_id = create_pending_invoice(&f);
@@ -383,7 +383,7 @@ fn scenario_treasury_pause_unpause_full_lifecycle_recovers() {
     assert_eq!(f.invoice.get_invoice(&inv_id).status, InvoiceStatus::Paid);
 
     // Unpause treasury
-    f.treasury.unpause(&f.admin);
+    f.treasury.unpause(&f.admin, &soroban_sdk::Symbol::new(&env, "test"));
 
     // Now propose and execute succeed
     let sid = f.treasury.propose_settlement(&f.admin, &f.merchant, &10_000_000);

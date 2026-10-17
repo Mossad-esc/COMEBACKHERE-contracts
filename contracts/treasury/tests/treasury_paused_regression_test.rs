@@ -7,7 +7,7 @@ fn paused_setup(env: &Env) -> (TreasuryContractClient, Address) {
     let id = env.register_contract(None, TreasuryContract);
     let client = TreasuryContractClient::new(env, &id);
     client.initialize(&admin, &1, &soroban_sdk::Vec::new(env));
-    client.pause(&admin);
+    client.pause(&admin, &soroban_sdk::Symbol::new(&env, "test"));
     (client, admin)
 }
 

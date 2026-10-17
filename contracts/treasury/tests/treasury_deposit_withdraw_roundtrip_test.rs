@@ -92,7 +92,7 @@ fn withdraw_all_drains_treasury_when_paused() {
     let test_token_client = TestTokenClient::new(&env, &token_id);
     test_token_client.mint(&treasury_id, &amount);
 
-    treasury_client.pause(&admin);
+    treasury_client.pause(&admin, &soroban_sdk::Symbol::new(&env, "test"));
     treasury_client.withdraw_all(&admin, &token_id, &recipient);
 
     assert_eq!(test_token_client.balance(&treasury_id), 0);

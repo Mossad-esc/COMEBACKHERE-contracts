@@ -135,7 +135,7 @@ fn authorized_caller_can_pause() {
     let client = TreasuryContractClient::new(&env, &id);
     client.initialize(&admin, &2, &soroban_sdk::Vec::new(&env));
 
-    client.pause(&admin);
+    client.pause(&admin, &soroban_sdk::Symbol::new(&env, "test"));
 }
 
 #[test]
@@ -147,8 +147,8 @@ fn authorized_caller_can_unpause() {
     let client = TreasuryContractClient::new(&env, &id);
     client.initialize(&admin, &2, &soroban_sdk::Vec::new(&env));
 
-    client.pause(&admin);
-    client.unpause(&admin);
+    client.pause(&admin, &soroban_sdk::Symbol::new(&env, "test"));
+    client.unpause(&admin, &soroban_sdk::Symbol::new(&env, "test"));
 }
 
 #[test]
@@ -168,8 +168,8 @@ fn guarded_function_succeeds_after_unpause() {
     assert_eq!(settlement_id, 1);
 
     // Pause, then unpause
-    client.pause(&admin);
-    client.unpause(&admin);
+    client.pause(&admin, &soroban_sdk::Symbol::new(&env, "test"));
+    client.unpause(&admin, &soroban_sdk::Symbol::new(&env, "test"));
 
     // Verify settlement operations work after unpause
     let settlement_id2 = client.propose_settlement(&signer, &merchant, &20_000_000);
@@ -245,8 +245,8 @@ fn pause_and_unpause_emit_events() {
     let id = env.register_contract(None, TreasuryContract);
     let client = TreasuryContractClient::new(&env, &id);
     client.initialize(&admin, &1, &soroban_sdk::Vec::new(&env));
-    client.pause(&admin);
-    client.unpause(&admin);
+    client.pause(&admin, &soroban_sdk::Symbol::new(&env, "test"));
+    client.unpause(&admin, &soroban_sdk::Symbol::new(&env, "test"));
     // after unpause, proposals work again
     let settlement_id = client.propose_settlement(&admin, &merchant, &1_000);
     assert_eq!(settlement_id, 1);
