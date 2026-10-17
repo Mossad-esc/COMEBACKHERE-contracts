@@ -46,6 +46,10 @@ use soroban_sdk::{contractimpl, Address, Env, Symbol, Vec};
 /// monitors have a meaningful reaction window.
 pub(crate) const SIGNER_CHANGE_TIMELOCK_SECS: u64 = 24 * 60 * 60;
 
+/// Hard cap on the number of proposals `list_pending_signer_changes` returns in a
+/// single call, to stay within Soroban budget limits.
+pub(crate) const MAX_SIGNER_CHANGE_PAGE: u32 = 50;
+
 #[contractimpl]
 impl TreasuryContract {
     /// Queues a timelocked signer or threshold-configuration change (admin-only).
@@ -255,5 +259,45 @@ impl TreasuryContract {
         env.storage()
             .persistent()
             .get(&DataKey::SignerChange(change_id))
+    }
+
+    /// Returns a page of `Pending` signer/threshold-change proposals (i.e. proposed but
+    /// not yet executed or cancelled), in ascending `change_id` order, along with each
+    /// one's `executable_at` timestamp — so monitoring tools can see every outstanding
+    /// change and when it becomes executable without walking the full proposal history.
+    ///
+    /// `start_after` skips every id `<= start_after` (pass `0` to start from the
+    /// beginning). `limit` is capped at `MAX_SIGNER_CHANGE_PAGE` to stay within Soroban
+    /// budget limits.
+    pub fn list_pending_signer_changes(
+        env: Env,
+        start_after: u64,
+        limit: u32,
+    ) -> Vec<SignerChangeProposal> {
+        let capped_limit = if limit > MAX_SIGNER_CHANGE_PAGE {
+            MAX_SIGNER_CHANGE_PAGE
+        } else {
+            limit
+        };
+        let count: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::SignerChangeCount)
+            .unwrap_or(0);
+        let mut page = Vec::new(&env);
+        let mut id = start_after.saturating_add(1);
+        while id <= count && (page.len() as u32) < capped_limit {
+            if let Some(proposal) = env
+                .storage()
+                .persistent()
+                .get::<DataKey, SignerChangeProposal>(&DataKey::SignerChange(id))
+            {
+                if proposal.status == SignerChangeStatus::Pending {
+                    page.push_back(proposal);
+                }
+            }
+            id += 1;
+        }
+        page
     }
 }
