@@ -8,7 +8,7 @@ pub use multisig::{
     SettlementStatus, SignerRotationProposal, TreasuryError,
 };
 
-use settlement::{require_authorized_signer, signer_weight};
+use settlement::{record_approval, require_authorized_signer, signer_last_active, signer_weight};
 use soroban_sdk::{contract, contractimpl, token, Address, Env, Symbol, Vec};
 
 #[contract]
@@ -79,7 +79,9 @@ impl TreasuryContract {
         let id = count + 1;
         let mut approvals = Vec::new(&env);
         let weight = signer_weight(&env, &signer);
-        approvals.push_back(signer);
+        approvals.push_back(signer.clone());
+        // The proposer is the first approver of their own proposal.
+        record_approval(&env, &signer);
         let settlement = Settlement {
             id,
             merchant_address,
@@ -124,7 +126,8 @@ impl TreasuryContract {
         }
         if !settlement.approvals.contains(&signer) {
             settlement.approval_weight += signer_weight(&env, &signer);
-            settlement.approvals.push_back(signer);
+            settlement.approvals.push_back(signer.clone());
+            record_approval(&env, &signer);
         }
         env.storage()
             .persistent()
@@ -160,7 +163,8 @@ impl TreasuryContract {
         }
         if !settlement.approvals.contains(&signer) {
             settlement.approval_weight += signer_weight(&env, &signer);
-            settlement.approvals.push_back(signer);
+            settlement.approvals.push_back(signer.clone());
+            record_approval(&env, &signer);
         }
         env.storage()
             .persistent()
@@ -548,7 +552,8 @@ impl TreasuryContract {
         }
         if !dispute.resolution_approvals.contains(&signer) {
             dispute.resolution_weight += signer_weight(&env, &signer);
-            dispute.resolution_approvals.push_back(signer);
+            dispute.resolution_approvals.push_back(signer.clone());
+            record_approval(&env, &signer);
         }
         let threshold: u32 = env
             .storage()
@@ -713,7 +718,9 @@ impl TreasuryContract {
         let id = count + 1;
         let weight = signer_weight(&env, &proposer);
         let mut approvals = Vec::new(&env);
-        approvals.push_back(proposer);
+        approvals.push_back(proposer.clone());
+        // The proposer is the first approver of their own proposal.
+        record_approval(&env, &proposer);
         let proposal = SignerRotationProposal {
             id,
             old_signer,
@@ -750,7 +757,8 @@ impl TreasuryContract {
         }
         if !proposal.approvals.contains(&approver) {
             proposal.approval_weight += signer_weight(&env, &approver);
-            proposal.approvals.push_back(approver);
+            proposal.approvals.push_back(approver.clone());
+            record_approval(&env, &approver);
         }
         let threshold: u32 = env
             .storage()
@@ -798,6 +806,12 @@ impl TreasuryContract {
             (Symbol::new(&env, "merchant_payout_updated"), merchant),
             new_payout_address,
         );
+    }
+
+    /// Returns the ledger timestamp of `signer`'s most recent recorded approval,
+    /// or `None` if the signer has never approved a settlement, rotation or dispute vote.
+    pub fn get_signer_last_active(env: Env, signer: Address) -> Option<u64> {
+        signer_last_active(&env, &signer)
     }
 
     /// Returns the registered payout address for `merchant`, or `None` if not set.

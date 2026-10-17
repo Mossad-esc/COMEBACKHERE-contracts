@@ -111,4 +111,6 @@ pub enum DataKey {
     RotationCount,
     SignerRotation(u64),
     MerchantPayoutAddress(Address),
+    /// Ledger timestamp of a signer's most recent recorded approval.
+    SignerLastActive(Address),
 }

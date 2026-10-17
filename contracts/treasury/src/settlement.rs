@@ -17,3 +17,21 @@ pub fn require_authorized_signer(env: &Env, signer: &Address) {
         panic!("UnauthorizedSigner");
     }
 }
+
+/// Stamps `signer` as active at the current ledger timestamp under
+/// `DataKey::SignerLastActive`. Called on every approval path so the signer
+/// registry can report who has gone quiet between rotations.
+pub fn record_approval(env: &Env, signer: &Address) {
+    env.storage().instance().set(
+        &DataKey::SignerLastActive(signer.clone()),
+        &env.ledger().timestamp(),
+    );
+}
+
+/// Returns the ledger timestamp of `signer`'s most recent approval, or `None`
+/// if the signer has never been recorded as active.
+pub fn signer_last_active(env: &Env, signer: &Address) -> Option<u64> {
+    env.storage()
+        .instance()
+        .get(&DataKey::SignerLastActive(signer.clone()))
+}
