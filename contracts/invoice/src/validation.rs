@@ -49,6 +49,16 @@ pub fn require_expiry_not_too_long(expires_in_seconds: u64) -> Result<(), Invoic
     Ok(())
 }
 
+/// Reject a payer that is the same address as the invoice's merchant.
+/// A merchant paying its own invoice can be used to inflate volume metrics
+/// or test-fill limits.
+pub fn require_payer_not_merchant(payer: &Address, merchant: &Address) -> Result<(), InvoiceError> {
+    if payer == merchant {
+        return Err(InvoiceError::SelfPayNotAllowed);
+    }
+    Ok(())
+}
+
 /// Reject a payment_link_hash that is provided but not exactly 32 bytes.
 pub fn require_valid_payment_link_hash(hash: &MaybeBytes) -> Result<(), InvoiceError> {
     if let MaybeBytes::Some(bytes) = hash {

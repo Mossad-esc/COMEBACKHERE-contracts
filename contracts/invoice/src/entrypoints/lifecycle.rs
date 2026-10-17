@@ -1,7 +1,7 @@
 use crate::events::{self, InvoiceAmountUpdatedEvent};
 use crate::validation::{
-    require_admin, require_expiry_not_too_long, require_not_paused, require_positive_amount,
-    require_usdc_precision, require_valid_payment_link_hash,
+    require_admin, require_expiry_not_too_long, require_not_paused, require_payer_not_merchant,
+    require_positive_amount, require_usdc_precision, require_valid_payment_link_hash,
 };
 use crate::{append_history, pending_index_add, pending_index_remove};
 use crate::{
@@ -122,6 +122,9 @@ impl InvoiceContract {
         if invoice.status != InvoiceStatus::Pending {
             return Err(InvoiceError::NotPending);
         }
+
+        // #717: reject self-pay, where the payer is the invoice's own merchant.
+        require_payer_not_merchant(&payer, &invoice.merchant)?;
 
         if provided_metadata_hash != MaybeBytes::None
             && provided_metadata_hash != invoice.metadata_hash

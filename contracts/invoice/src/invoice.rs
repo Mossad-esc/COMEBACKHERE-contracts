@@ -48,6 +48,8 @@ pub enum InvoiceError {
     CooldownActive = 21,
     /// InvoiceCount overflow would wrap the next invoice ID.
     InvoiceCountOverflow = 22,
+    /// create_invoice/batch_create_invoice called with payer == merchant.
+    SelfPayNotAllowed = 23,
 }
 
 #[contracttype]
