@@ -50,6 +50,24 @@ pub(crate) const SIGNER_CHANGE_TIMELOCK_SECS: u64 = 24 * 60 * 60;
 /// single call, to stay within Soroban budget limits.
 pub(crate) const MAX_SIGNER_CHANGE_PAGE: u32 = 50;
 
+/// Minimum allowed value for the admin-configurable timelock delay (#732): one hour.
+/// Prevents the delay from being shortened to the point of defeating the reaction
+/// window the timelock exists to provide.
+pub const MIN_TIMELOCK_DELAY_SECS: u64 = 60 * 60;
+
+/// Maximum allowed value for the admin-configurable timelock delay (#732): 30 days.
+/// Prevents an operator from locking signer changes behind an impractically long wait.
+pub const MAX_TIMELOCK_DELAY_SECS: u64 = 30 * 24 * 60 * 60;
+
+/// Returns the currently-configured signer/threshold-change timelock delay (#732),
+/// falling back to `SIGNER_CHANGE_TIMELOCK_SECS` when it has never been changed.
+pub(crate) fn current_timelock_delay(env: &Env) -> u64 {
+    env.storage()
+        .instance()
+        .get(&DataKey::TimelockDelaySecs)
+        .unwrap_or(SIGNER_CHANGE_TIMELOCK_SECS)
+}
+
 #[contractimpl]
 impl TreasuryContract {
     /// Queues a timelocked signer or threshold-configuration change (admin-only).
@@ -80,9 +98,15 @@ impl TreasuryContract {
             .checked_add(1)
             .ok_or(TreasuryError::ArithmeticOverflow)?;
 
+        if let SignerChangeKind::UpdateTimelockDelay(seconds) = kind {
+            if seconds < MIN_TIMELOCK_DELAY_SECS || seconds > MAX_TIMELOCK_DELAY_SECS {
+                return Err(TreasuryError::InvalidTimelockDelay);
+            }
+        }
+
         let now = env.ledger().timestamp();
         let executable_at = now
-            .checked_add(SIGNER_CHANGE_TIMELOCK_SECS)
+            .checked_add(current_timelock_delay(&env))
             .ok_or(TreasuryError::ArithmeticOverflow)?;
 
         let proposal = SignerChangeProposal {
@@ -200,6 +224,17 @@ impl TreasuryContract {
                     .instance()
                     .set(&DataKey::Threshold, &new_threshold);
             }
+            SignerChangeKind::UpdateTimelockDelay(seconds) => {
+                // Re-checked here (not just at proposal time) so the bound can never
+                // be bypassed, even if a future change alters the bounds between
+                // proposal and execution.
+                if seconds < MIN_TIMELOCK_DELAY_SECS || seconds > MAX_TIMELOCK_DELAY_SECS {
+                    return Err(TreasuryError::InvalidTimelockDelay);
+                }
+                env.storage()
+                    .instance()
+                    .set(&DataKey::TimelockDelaySecs, &seconds);
+            }
         }
 
         proposal.status = SignerChangeStatus::Executed;
@@ -299,5 +334,13 @@ impl TreasuryContract {
             id += 1;
         }
         page
+    }
+
+    /// Returns the currently-configured signer/threshold-change timelock delay, in
+    /// seconds (#732). Falls back to the 24 h default when it has never been changed
+    /// via `propose_signer_change(UpdateTimelockDelay(..))` /
+    /// `execute_signer_change`.
+    pub fn get_timelock_delay(env: Env) -> u64 {
+        current_timelock_delay(&env)
     }
 }

@@ -86,6 +86,9 @@ pub enum TreasuryError {
     NoPendingAdmin = 46,
     // Appended for signer labels: label exceeds the maximum length.
     LabelTooLong = 47,
+    // Appended for #732: a proposed timelock delay falls outside the admin-
+    // configurable [MIN_TIMELOCK_DELAY_SECS, MAX_TIMELOCK_DELAY_SECS] bounds.
+    InvalidTimelockDelay = 48,
 }
 
 // Issue #48: reason codes attached to a held settlement; None means not on hold
@@ -233,6 +236,11 @@ pub enum SignerChangeKind {
     RemoveSigner(Address),
     /// Change the multisig approval threshold.
     UpdateThreshold(u32),
+    /// Change the signer/threshold-change timelock delay itself (#732), in seconds.
+    /// Must fall within [MIN_TIMELOCK_DELAY_SECS, MAX_TIMELOCK_DELAY_SECS]; enforced
+    /// again at execution time so the bound cannot be bypassed even if it changes
+    /// between proposal and execution.
+    UpdateTimelockDelay(u64),
 }
 
 /// Lifecycle state of a `SignerChangeProposal`.
@@ -354,6 +362,9 @@ pub enum DataKey {
     /// kept in sync by `raise_dispute` so `get_disputes_by_settlement` costs
     /// proportional to the disputes on that settlement rather than total dispute history.
     SettlementDisputes(u64),
+    /// Admin-configurable signer/threshold-change timelock delay in seconds (#732).
+    /// Absent means the hard-coded default (`SIGNER_CHANGE_TIMELOCK_SECS`) applies.
+    TimelockDelaySecs,
 }
 
 /// Returns the approval weight assigned to `signer`, or `0` if not registered.
