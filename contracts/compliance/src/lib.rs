@@ -128,11 +128,6 @@ impl ComplianceContract {
         reason: Option<Bytes>,
     ) -> Result<(), ContractError> {
         Self::require_admin(&env, &admin)?;
-        let was_blocked: bool = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Blocked(address.clone()))
-            .unwrap_or(false);
         env.storage()
             .persistent()
             .set(&DataKey::Blocked(address.clone()), &true);
@@ -494,6 +489,8 @@ impl ComplianceContract {
     }
 
     /// Compute the current [`AddressState`] for a single address without auth.
+    // Reserved for the `export_snapshot` read path (issue #80).
+    #[allow(dead_code)]
     fn address_state(env: &Env, addr: &Address) -> AddressState {
         let blocked: bool = env
             .storage()
@@ -535,9 +532,7 @@ impl ComplianceContract {
             .unwrap_or(Vec::new(env));
         if !index.contains(address) {
             index.push_back(address.clone());
-            env.storage()
-                .instance()
-                .set(&DataKey::AddressIndex, &index);
+            env.storage().instance().set(&DataKey::AddressIndex, &index);
         }
     }
 }

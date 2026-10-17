@@ -1,4 +1,4 @@
-use soroban_sdk::{contract, contractimpl, testutils::Address as _, Address, Env};
+use soroban_sdk::{testutils::Address as _, Address, Env};
 use treasury::{TreasuryContract, TreasuryContractClient};
 
 mod test_token {
@@ -40,36 +40,36 @@ use test_token::{TestToken, TestTokenClient};
 fn deposit_withdraw_roundtrip() {
     let env = Env::default();
     env.mock_all_auths();
-    
+
     let admin = Address::generate(&env);
     let depositor = Address::generate(&env);
     let amount = 5_000_000i128;
-    
+
     let treasury_id = env.register_contract(None, TreasuryContract);
     let treasury_client = TreasuryContractClient::new(&env, &treasury_id);
     treasury_client.initialize(&admin, &1);
-    
+
     let token_id = env.register_contract(None, TestToken);
     let test_token_client = TestTokenClient::new(&env, &token_id);
-    
+
     // Mint tokens to depositor and treasury
     test_token_client.mint(&depositor, &amount);
     test_token_client.mint(&treasury_id, &amount);
-    
+
     // Verify initial balances
     assert_eq!(test_token_client.balance(&depositor), amount);
     assert_eq!(test_token_client.balance(&treasury_id), amount);
-    
+
     // Deposit
     treasury_client.deposit(&depositor, &token_id, &amount);
-    
+
     // Verify balances after deposit
     assert_eq!(test_token_client.balance(&depositor), 0);
     assert_eq!(test_token_client.balance(&treasury_id), amount * 2);
-    
+
     // Withdraw
     treasury_client.withdraw(&depositor, &token_id, &amount);
-    
+
     // Verify balances after withdraw
     assert_eq!(test_token_client.balance(&depositor), amount);
     assert_eq!(test_token_client.balance(&treasury_id), amount);

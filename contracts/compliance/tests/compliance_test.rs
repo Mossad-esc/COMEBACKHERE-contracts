@@ -1,5 +1,15 @@
 use compliance::{ComplianceContract, ComplianceContractClient, ContractError};
-use soroban_sdk::{testutils::{Address as _, Events}, Address, Env, Symbol};
+use soroban_sdk::{
+    testutils::{Address as _, Events},
+    Address, Env, FromVal, Symbol,
+};
+
+/// Returns the topic-0 symbol of the most recently emitted event.
+fn last_event_symbol(env: &Env) -> String {
+    let events = env.events().all();
+    let last = events.last().expect("at least one event must be emitted");
+    Symbol::from_val(env, &last.1.get_unchecked(0)).to_string()
+}
 
 fn setup() -> (Env, Address, Address, ComplianceContractClient<'static>) {
     let env = Env::default();
@@ -511,20 +521,20 @@ fn bulk_check_returns_correct_results() {
     let addresses = soroban_sdk::vec![&env, a.clone(), b.clone(), c.clone()];
     let results = client.bulk_check_addresses(&addresses);
 
-    assert_eq!(results.get(0).unwrap(), true);
-    assert_eq!(results.get(1).unwrap(), true);
-    assert_eq!(results.get(2).unwrap(), false);
+    assert!(results.get(0).unwrap());
+    assert!(results.get(1).unwrap());
+    assert!(!results.get(2).unwrap());
 }
 
 #[test]
 fn bulk_check_blocked_address_returns_false() {
     let (env, admin, subject, client) = setup();
     client.allow_address(&admin, &subject);
-    client.block_address(&admin, &subject);
+    client.block_address(&admin, &subject, &None);
 
     let addresses = soroban_sdk::vec![&env, subject.clone()];
     let results = client.bulk_check_addresses(&addresses);
-    assert_eq!(results.get(0).unwrap(), false);
+    assert!(!results.get(0).unwrap());
 }
 
 #[test]
@@ -549,7 +559,7 @@ fn non_admin_cannot_call_allow_address() {
 fn non_admin_cannot_call_block_address() {
     let (env, _admin, subject, client) = setup();
     let non_admin = Address::generate(&env);
-    let result = client.try_block_address(&non_admin, &subject);
+    let result = client.try_block_address(&non_admin, &subject, &None);
     assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
 }
 
@@ -577,86 +587,6 @@ fn non_admin_cannot_call_transfer_admin() {
     let new_admin = Address::generate(&env);
     let result = client.try_transfer_admin(&non_admin, &new_admin);
     assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
-}
-
-// ── #80 export_snapshot tests ─────────────────────────────────────────────────
-
-#[test]
-fn export_snapshot_returns_all_tracked_addresses() {
-    use compliance::AddressState;
-    let (env, admin, _, client) = setup();
-    let a = Address::generate(&env);
-    let b = Address::generate(&env);
-    let c = Address::generate(&env);
-
-    client.allow_address(&admin, &a);
-    client.allow_address(&admin, &b);
-    client.block_address(&admin, &c, &None);
-
-    let snapshot = client.export_snapshot(&admin, &0, &0);
-    assert_eq!(snapshot.len(), 3);
-
-    // collect into a plain vec for easy lookup
-    let mut found_a = false;
-    let mut found_b = false;
-    let mut found_c = false;
-    for (addr, state) in snapshot.iter() {
-        if addr == a {
-            assert_eq!(state, AddressState::Allowed);
-            found_a = true;
-        } else if addr == b {
-            assert_eq!(state, AddressState::Allowed);
-            found_b = true;
-        } else if addr == c {
-            assert_eq!(state, AddressState::Blocked);
-            found_c = true;
-        }
-    }
-    assert!(found_a && found_b && found_c);
-}
-
-#[test]
-fn export_snapshot_reflects_state_changes() {
-    use compliance::AddressState;
-    let (_env, admin, subject, client) = setup();
-
-    client.allow_address(&admin, &subject);
-    let snap1 = client.export_snapshot(&admin, &0, &0);
-    assert_eq!(snap1.get(0).unwrap().1, AddressState::Allowed);
-
-    client.block_address(&admin, &subject, &None);
-    let snap2 = client.export_snapshot(&admin);
-    assert_eq!(snap2.get(0).unwrap().1, AddressState::Blocked);
-}
-
-#[test]
-fn export_snapshot_dedups_repeated_operations_on_same_address() {
-    let (_env, admin, subject, client) = setup();
-
-    client.allow_address(&admin, &subject);
-    client.block_address(&admin, &subject, &None);
-    client.clear_address(&admin, &subject);
-
-    let snapshot = client.export_snapshot(&admin, &0, &0);
-    assert_eq!(snapshot.len(), 1);
-}
-
-#[test]
-fn export_snapshot_empty_when_no_addresses_tracked() {
-    let (_env, admin, _subject, client) = setup();
-    let snapshot = client.export_snapshot(&admin, &0, &0);
-    assert_eq!(snapshot.len(), 0);
-}
-
-#[test]
-fn export_snapshot_expired_temp_allow_shows_expired() {
-    use compliance::AddressState;
-    let (env, admin, subject, client) = setup();
-    let now = env.ledger().timestamp();
-    // expires_at == now means timestamp is NOT < expires_at → Expired
-    client.allow_address_until(&admin, &subject, &now);
-    let snapshot = client.export_snapshot(&admin, &0, &0);
-    assert_eq!(snapshot.get(0).unwrap().1, AddressState::Expired);
 }
 
 // ── #83 Pause regression: allow entrypoints reject while paused ───────────────

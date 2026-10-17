@@ -1,11 +1,5 @@
-use invoice::{
-    InvoiceContract, InvoiceContractClient, InvoiceError, InvoiceStatus, MaybeBytes,
-};
-use soroban_sdk::{
-    contract, contracterror, contractimpl,
-    testutils::Address as _,
-    Address, Env,
-};
+use invoice::{InvoiceContract, InvoiceContractClient, InvoiceError, InvoiceStatus, MaybeBytes};
+use soroban_sdk::{contract, contracterror, contractimpl, testutils::Address as _, Address, Env};
 use treasury::{TreasuryContract, TreasuryContractClient};
 
 #[contracterror]
@@ -146,10 +140,7 @@ fn pay_and_propose_fails_when_invoice_contract_paused() {
     assert_eq!(err, PauseWorkflowError::InvoicePaused);
 
     // Invoice status remains unchanged.
-    assert_eq!(
-        invoice.get_invoice(&inv_id).status,
-        InvoiceStatus::Pending
-    );
+    assert_eq!(invoice.get_invoice(&inv_id).status, InvoiceStatus::Pending);
 }
 
 #[test]

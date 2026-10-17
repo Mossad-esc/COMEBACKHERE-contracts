@@ -1,11 +1,7 @@
 use compliance::{ComplianceContract, ComplianceContractClient};
-use invoice::{
-    InvoiceContract, InvoiceContractClient, InvoiceStatus, MaybeAddress, MaybeBytes,
-};
+use invoice::{InvoiceContract, InvoiceContractClient, InvoiceStatus, MaybeAddress, MaybeBytes};
 use soroban_sdk::{contract, contractimpl, testutils::Address as _, Address, Env};
-use treasury::{
-    SettlementStatus, TreasuryContract, TreasuryContractClient,
-};
+use treasury::{SettlementStatus, TreasuryContract, TreasuryContractClient};
 
 mod test_token {
     use soroban_sdk::{contract, contractimpl, Address, Env};
@@ -63,8 +59,6 @@ impl ComplianceGatedSettlement {
         treasury.execute_settlement(&env.current_contract_address(), &settlement_id, &token_id);
     }
 }
-
-use compliance_gated_settlement::{ComplianceGatedSettlement, ComplianceGatedSettlementClient};
 
 struct TestContext {
     _env: Env,
@@ -163,9 +157,7 @@ fn full_lifecycle_happy_path() {
     let settlement = ctx.treasury.get_settlement(&settlement_id);
     assert_eq!(settlement.approval_weight, 4);
 
-    let wf_id = ctx
-        ._env
-        .register_contract(None, ComplianceGatedSettlement);
+    let wf_id = ctx._env.register_contract(None, ComplianceGatedSettlement);
     let wf = ComplianceGatedSettlementClient::new(&ctx._env, &wf_id);
 
     wf.execute(
@@ -205,9 +197,7 @@ fn full_lifecycle_rejected_when_compliance_fails() {
         .propose_settlement(&ctx.admin, &ctx.merchant, &10_000_000);
     ctx.treasury.approve_settlement(&ctx.admin, &settlement_id);
 
-    let wf_id = ctx
-        ._env
-        .register_contract(None, ComplianceGatedSettlement);
+    let wf_id = ctx._env.register_contract(None, ComplianceGatedSettlement);
     let wf = ComplianceGatedSettlementClient::new(&ctx._env, &wf_id);
 
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

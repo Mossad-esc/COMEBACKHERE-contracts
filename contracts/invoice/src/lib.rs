@@ -87,7 +87,9 @@ impl InvoiceContract {
             .instance()
             .get(&DataKey::InvoiceCount)
             .unwrap_or(0);
-        let id = count + 1;
+        let id = count
+            .checked_add(1)
+            .ok_or(InvoiceError::InvoiceIdOverflow)?;
         let expires_at = env
             .ledger()
             .timestamp()

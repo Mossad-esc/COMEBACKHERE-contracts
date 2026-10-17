@@ -1,7 +1,5 @@
-use invoice::{
-    InvoiceContract, InvoiceContractClient, InvoiceError, InvoiceStatus, MaybeAddress, MaybeBytes,
-};
-use soroban_sdk::{contract, contractimpl, testutils::Address as _, Address, Env};
+use invoice::{InvoiceContract, InvoiceContractClient, InvoiceStatus, MaybeAddress, MaybeBytes};
+use soroban_sdk::{testutils::Address as _, Address, Env};
 use treasury::{TreasuryContract, TreasuryContractClient};
 
 mod test_token {
@@ -65,12 +63,21 @@ fn setup() -> (
     treasury.initialize(&admin, &1);
 
     let token_id = env.register_contract(None, TestToken);
-    (env, admin, merchant, payer, invoice, treasury_id, treasury, token_id)
+    (
+        env,
+        admin,
+        merchant,
+        payer,
+        invoice,
+        treasury_id,
+        treasury,
+        token_id,
+    )
 }
 
 #[test]
 fn invoice_created_paid_released() {
-    let (env, admin, merchant, payer, invoice, _treasury_id, _treasury, _token_id) = setup();
+    let (_env, admin, merchant, payer, invoice, _treasury_id, _treasury, _token_id) = setup();
 
     let id = invoice.create_invoice(
         &merchant,
@@ -131,10 +138,7 @@ fn end_to_end_invoice_to_settlement() {
     assert_eq!(invoice.get_invoice(&inv_id).status, InvoiceStatus::Paid);
 
     invoice.release_escrow(&admin, &inv_id);
-    assert_eq!(
-        invoice.get_invoice(&inv_id).status,
-        InvoiceStatus::Released
-    );
+    assert_eq!(invoice.get_invoice(&inv_id).status, InvoiceStatus::Released);
 
     let token = TestTokenClient::new(&env, &token_id);
     token.mint(&treasury_id, &10_000_000);

@@ -23,6 +23,8 @@ pub enum InvoiceError {
     AmountPrecision = 12,
     /// Merchant nonce has already been used for a previous invoice.
     DuplicateNonce = 13,
+    /// The invoice id counter would overflow u64.
+    InvoiceIdOverflow = 14,
 }
 
 #[contracttype]

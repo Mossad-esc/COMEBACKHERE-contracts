@@ -90,7 +90,10 @@ fn settlement_proposal_succeeds_when_invoice_paid() {
         )
         .unwrap()
         .unwrap();
-    assert!(invoice.try_mark_paid(&admin, &inv_id, &payer).unwrap().is_ok());
+    assert!(invoice
+        .try_mark_paid(&admin, &inv_id, &payer)
+        .unwrap()
+        .is_ok());
 
     let wf = SettlementProposalWorkflowClient::new(&env, &wf_id);
     assert!(wf
@@ -136,7 +139,10 @@ fn settlement_proposal_rejected_when_invoice_released() {
         )
         .unwrap()
         .unwrap();
-    assert!(invoice.try_mark_paid(&admin, &inv_id, &payer).unwrap().is_ok());
+    assert!(invoice
+        .try_mark_paid(&admin, &inv_id, &payer)
+        .unwrap()
+        .is_ok());
     invoice.release_escrow(&admin, &inv_id);
     assert_eq!(invoice.get_invoice(&inv_id).status, InvoiceStatus::Released);
 
