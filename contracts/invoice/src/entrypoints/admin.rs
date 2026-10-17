@@ -71,6 +71,11 @@ impl InvoiceContract {
         Ok(())
     }
 
+    /// Returns the current admin address.
+    pub fn get_admin(env: Env) -> Address {
+        env.storage().instance().get(&DataKey::Admin).unwrap()
+    }
+
     pub fn pause(env: Env, admin: Address) -> Result<(), InvoiceError> {
         require_admin(&env, &admin)?;
         env.storage().instance().set(&DataKey::Paused, &true);

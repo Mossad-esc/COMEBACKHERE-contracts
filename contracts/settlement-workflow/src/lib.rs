@@ -1,8 +1,14 @@
 #![no_std]
 
 use compliance_client::ComplianceClient;
-use soroban_sdk::{contract, contracterror, contractimpl, Address, Env};
+use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env};
 use treasury::TreasuryContractClient;
+
+#[contracttype]
+#[derive(Clone)]
+pub enum DataKey {
+    Admin,
+}
 
 /// Reference on-chain implementation of the `SettlementWorkflow` role described in
 /// `ARCHITECTURE.md`: gates `Treasury::execute_settlement` behind
@@ -13,6 +19,8 @@ use treasury::TreasuryContractClient;
 #[repr(u32)]
 pub enum WorkflowError {
     ComplianceFailed = 1,
+    AlreadyInitialized = 2,
+    NotInitialized = 3,
 }
 
 #[contract]
@@ -20,6 +28,26 @@ pub struct SettlementWorkflowContract;
 
 #[contractimpl]
 impl SettlementWorkflowContract {
+    /// Records `admin` as this contract's administrator. Optional: callers that only use
+    /// `execute_with_compliance` do not need to call this. Errors if already initialized.
+    pub fn initialize(env: Env, admin: Address) -> Result<(), WorkflowError> {
+        if env.storage().instance().has(&DataKey::Admin) {
+            return Err(WorkflowError::AlreadyInitialized);
+        }
+        admin.require_auth();
+        env.storage().instance().set(&DataKey::Admin, &admin);
+        Ok(())
+    }
+
+    /// Returns the stored admin address.
+    /// Errors: `NotInitialized` if `initialize` has not been called.
+    pub fn get_admin(env: Env) -> Result<Address, WorkflowError> {
+        env.storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(WorkflowError::NotInitialized)
+    }
+
     /// Checks `Compliance::is_allowed(merchant)` and, only if it passes, calls
     /// `Treasury::execute_settlement(..., settlement_id, token_contract)` using this
     /// contract's own address as the authorizing signer (it must be registered as a
