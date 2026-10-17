@@ -350,6 +350,10 @@ pub enum DataKey {
     /// Optional human-readable label for a signer (#568), e.g. "ops-hot-key".
     /// Purely informational — never consulted for authorisation decisions.
     SignerLabel(Address),
+    /// Bounded list of dispute ids raised against a given settlement id (#729),
+    /// kept in sync by `raise_dispute` so `get_disputes_by_settlement` costs
+    /// proportional to the disputes on that settlement rather than total dispute history.
+    SettlementDisputes(u64),
 }
 
 /// Returns the approval weight assigned to `signer`, or `0` if not registered.
