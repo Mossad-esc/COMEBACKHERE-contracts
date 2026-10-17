@@ -79,9 +79,7 @@ impl TreasuryContract {
         let id = count + 1;
         let mut approvals = Vec::new(&env);
         let weight = signer_weight(&env, &signer);
-        approvals.push_back(signer.clone());
-        // The proposer is the first approver of their own proposal.
-        record_approval(&env, &signer);
+        approvals.push_back(signer);
         let settlement = Settlement {
             id,
             merchant_address,
@@ -718,9 +716,7 @@ impl TreasuryContract {
         let id = count + 1;
         let weight = signer_weight(&env, &proposer);
         let mut approvals = Vec::new(&env);
-        approvals.push_back(proposer.clone());
-        // The proposer is the first approver of their own proposal.
-        record_approval(&env, &proposer);
+        approvals.push_back(proposer);
         let proposal = SignerRotationProposal {
             id,
             old_signer,
@@ -809,9 +805,9 @@ impl TreasuryContract {
     }
 
     /// Returns the ledger timestamp of `signer`'s most recent recorded approval,
-    /// or `None` if the signer has never approved a settlement, rotation or dispute vote.
-    pub fn get_signer_last_active(env: Env, signer: Address) -> Option<u64> {
-        signer_last_active(&env, &signer)
+    /// or `0` if the signer has never recorded an approval.
+    pub fn get_signer_last_active(env: Env, signer: Address) -> u64 {
+        signer_last_active(&env, &signer).unwrap_or(0)
     }
 
     /// Returns the registered payout address for `merchant`, or `None` if not set.

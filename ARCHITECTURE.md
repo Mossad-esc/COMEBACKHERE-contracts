@@ -66,6 +66,10 @@ sequenceDiagram
 | `GraceWindow` | Instance | `u64` | Seconds added to `expires_at` during `mark_paid` |
 | `Invoice(u64)` | Persistent | `Invoice` | Full invoice record keyed by ID |
 | `MerchantNonce(Address, u64)` | Persistent | `bool` | Idempotency guard; rejects duplicate merchant nonces |
+| `Template(u64)` | Persistent | `InvoiceTemplate` | Recurring invoice template keyed by ID |
+| `TemplateCount` | Instance | `u64` | Monotonic template ID counter |
+| `MerchantTemplates(Address)` | Instance | `Vec<u64>` | Template IDs per merchant, in creation order |
+| `LateFeeBps` | Instance | `u32` | Late fee in basis points charged on overdue balances |
 
 ### Treasury (`contracts/treasury`)
 
@@ -80,6 +84,7 @@ sequenceDiagram
 | `RotationCount` | Instance | `u64` | Monotonic signer-rotation proposal counter |
 | `TokenAllowlist` | Instance | `Vec<Address>` | Approved token contracts for settlement |
 | `MerchantPayoutAddress(Address)` | Instance | `Address` | Override payout address per merchant |
+| `SignerLastActive(Address)` | Instance | `u64` | Ledger timestamp of a signer's most recent recorded approval |
 | `Settlement(u64)` | Persistent | `Settlement` | Settlement record keyed by ID |
 | `Dispute(u64)` | Persistent | `Dispute` | Dispute record keyed by ID |
 | `Balance(Address)` | Persistent | `i128` | Deposited balance per depositor |

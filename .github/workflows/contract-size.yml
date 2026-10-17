@@ -42,7 +42,7 @@ jobs:
             if [ -f "$contract/Cargo.toml" ]; then
               name=$(basename "$contract")
               echo "--- Building $name ---"
-              cargo build --package "comebackhere-$name" --target wasm32-unknown-unknown --release 2>&1
+              cargo build --package "comebackhere-$name" --target wasm32-unknown-unknown --release --no-default-features 2>&1
             fi
           done
 

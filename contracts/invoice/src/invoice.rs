@@ -25,6 +25,10 @@ pub enum InvoiceError {
     DuplicateNonce = 13,
     /// The invoice id counter would overflow u64.
     InvoiceIdOverflow = 14,
+    /// A keeper batch exceeded `MAX_BATCH_SIZE`.
+    BatchTooLarge = 15,
+    /// The requested late fee exceeds `MAX_LATE_FEE_BPS`.
+    InvalidLateFee = 16,
 }
 
 #[contracttype]
@@ -83,4 +87,12 @@ pub enum DataKey {
     GraceWindow,
     /// Tracks used merchant nonces: (merchant_address, nonce) → bool.
     MerchantNonce(Address, u64),
+    /// Recurring invoice template store: Template(id) → InvoiceTemplate.
+    Template(u64),
+    /// Monotonic template id counter.
+    TemplateCount,
+    /// Per-merchant template index in creation order: (merchant_address, template_ids).
+    MerchantTemplates(Address),
+    /// Late fee in basis points applied to overdue balances.
+    LateFeeBps,
 }

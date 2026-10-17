@@ -30,10 +30,10 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Build compliance contract (WASM)
-        run: cargo build --target wasm32-unknown-unknown --release -p comebackhere-compliance
+        run: cargo build --target wasm32-unknown-unknown --release --no-default-features -p comebackhere-compliance
 
       - name: Build invoice contract (WASM)
-        run: cargo build --target wasm32-unknown-unknown --release -p comebackhere-invoice
+        run: cargo build --target wasm32-unknown-unknown --release --no-default-features -p comebackhere-invoice
 
       - name: Build treasury contract (WASM)
-        run: cargo build --target wasm32-unknown-unknown --release -p comebackhere-treasury
+        run: cargo build --target wasm32-unknown-unknown --release --no-default-features -p comebackhere-treasury

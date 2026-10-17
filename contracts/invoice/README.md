@@ -19,3 +19,18 @@ The Invoice contract manages the lifecycle of merchant invoices, from creation t
 | `request_refund`     | `payer`       | `payer: Address, id: u64`                                                                                                                                        | `Result<(), InvoiceError>`            | `Unauthorized`, `ContractPaused`, `NotFound`, `NotPaid`                                                   |
 | `pause`              | `admin`       | `admin: Address`                                                                                                                                                 | `Result<(), InvoiceError>`            | `Unauthorized`                                                                                            |
 | `unpause`            | `admin`       | `admin: Address`                                                                                                                                                 | `Result<(), InvoiceError>`            | `Unauthorized`                                                                                            |
+| `create_template` | `merchant` | `merchant: Address, amount_usdc: i128, gross_usdc: i128, interval: RecurrenceInterval, expires_in_seconds: u64, metadata_hash: MaybeBytes, payment_link_hash: MaybeBytes` | `Result<u64, InvoiceError>` | `ContractPaused`, `InvalidAmount`, `AmountPrecision`, `ZeroDuration`, `ExpiryOverflow`, `InvoiceIdOverflow` |
+| `get_invoice_template` | None | `id: u64` | `Result<InvoiceTemplate, InvoiceError>` | `NotFound` |
+| `list_templates_by_merchant` | None | `merchant: Address, start: u64, limit: u64` | `Vec<InvoiceTemplate>` | None (`limit` capped at `MAX_PAGE_LIMIT`) |
+| `set_template_active` | `caller` | `caller: Address, id: u64, active: bool` | `Result<(), InvoiceError>` | `NotFound`, `Unauthorized` |
+| `generate_due_invoices` | None (keeper) | `template_ids: Vec<u64>` | `Result<u32, InvoiceError>` | `BatchTooLarge`, `ContractPaused` |
+| `set_late_fee_bps` | `admin` | `admin: Address, bps: u32` | `Result<(), InvoiceError>` | `Unauthorized`, `InvalidLateFee` |
+| `get_late_fee_bps` | None | None | `u32` | None |
+
+Recurring templates: `create_template` schedules the first run one full interval ahead
+(`next_run_at`). The permissionless `generate_due_invoices` keeper call mints one invoice per
+due template and advances the schedule past the current timestamp, so a period can never be
+invoiced twice; batches are capped at `MAX_BATCH_SIZE` and template pages at `MAX_PAGE_LIMIT`.
+
+Events are documented in [`docs/event-schema.md`](../../docs/event-schema.md).
+

@@ -35,3 +35,5 @@ The Treasury contract manages funds and settlements using a multi-signature appr
 | `get_merchant_payout_address` | None | `merchant: Address` | `Option<Address>` | None |
 | `hold_settlement` | `admin` | `admin: Address, settlement_id: u64, reason: SettlementHoldReason` | `()` | `Unauthorized`, `SettlementNotFound`, `AlreadyExecuted` |
 | `release_hold` | `admin` | `admin: Address, settlement_id: u64` | `()` | `Unauthorized`, `SettlementNotFound`, `NotOnHold` |
+| `get_signer_last_active` | None | `signer: Address` | `u64` | None |
+

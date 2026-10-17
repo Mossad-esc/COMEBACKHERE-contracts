@@ -1,15 +1,21 @@
 #![no_std]
 
+mod entrypoints;
 mod events;
 mod invoice;
+mod template;
 mod validation;
 
 pub use invoice::{DataKey, Invoice, InvoiceError, InvoiceStatus, MaybeAddress, MaybeBytes};
+pub use template::{InvoiceTemplate, RecurrenceInterval, MAX_BATCH_SIZE, MAX_PAGE_LIMIT};
 
-use soroban_sdk::{contract, contractimpl, Address, Env, Vec};
-use validation::{
-    require_admin, require_not_paused, require_positive_amount, require_usdc_precision,
+use entrypoints::lifecycle::{create_invoice, get_late_fee_bps, set_late_fee_bps};
+use entrypoints::template::{
+    create_template, generate_due_invoices, get_invoice_template, list_templates_by_merchant,
+    set_template_active,
 };
+use soroban_sdk::{contract, contractimpl, Address, Env, Vec};
+use validation::{require_admin, require_not_paused};
 
 #[contract]
 pub struct InvoiceContract;
@@ -63,58 +69,16 @@ impl InvoiceContract {
         payment_link_hash: MaybeBytes,
         merchant_nonce: u64,
     ) -> Result<u64, InvoiceError> {
-        merchant.require_auth();
-        require_not_paused(&env)?;
-        require_positive_amount(amount_usdc, gross_usdc)?;
-        // #57: USDC decimal precision guardrail
-        require_usdc_precision(amount_usdc, gross_usdc)?;
-
-        if expires_in_seconds == 0 {
-            return Err(InvoiceError::ZeroDuration);
-        }
-
-        // #58: reject duplicate merchant nonce
-        if merchant_nonce != 0 {
-            let nonce_key = DataKey::MerchantNonce(merchant.clone(), merchant_nonce);
-            if env.storage().persistent().has(&nonce_key) {
-                return Err(InvoiceError::DuplicateNonce);
-            }
-            env.storage().persistent().set(&nonce_key, &true);
-        }
-
-        let count: u64 = env
-            .storage()
-            .instance()
-            .get(&DataKey::InvoiceCount)
-            .unwrap_or(0);
-        let id = count
-            .checked_add(1)
-            .ok_or(InvoiceError::InvoiceIdOverflow)?;
-        let expires_at = env
-            .ledger()
-            .timestamp()
-            .checked_add(expires_in_seconds)
-            .ok_or(InvoiceError::ExpiryOverflow)?;
-        let invoice = Invoice {
-            id,
-            merchant: merchant.clone(),
+        create_invoice(
+            &env,
+            merchant,
             amount_usdc,
             gross_usdc,
-            status: InvoiceStatus::Pending,
-            expires_at,
-            paid_at: None,
-            payer: MaybeAddress::None,
+            expires_in_seconds,
             metadata_hash,
             payment_link_hash,
             merchant_nonce,
-        };
-
-        env.storage()
-            .persistent()
-            .set(&DataKey::Invoice(id), &invoice);
-        env.storage().instance().set(&DataKey::InvoiceCount, &id);
-        events::invoice_created(&env, id, &invoice);
-        Ok(id)
+        )
     }
 
     pub fn mark_paid(
@@ -284,6 +248,91 @@ impl InvoiceContract {
         env.storage().instance().set(&DataKey::Paused, &false);
         events::contract_unpaused(&env, &admin);
         Ok(())
+    }
+
+    // --- recurring invoice templates (#698, #699) ---
+
+    /// Register a recurring invoice template for `merchant` and return its id.
+    /// The first run is scheduled one full interval after creation, so a new
+    /// template is never due immediately.
+    /// Errors: `ContractPaused`, `InvalidAmount`, `AmountPrecision`, `ZeroDuration`,
+    ///         `ExpiryOverflow`, `InvoiceIdOverflow`.
+    /// Emits: `template_created`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_template(
+        env: Env,
+        merchant: Address,
+        amount_usdc: i128,
+        gross_usdc: i128,
+        interval: RecurrenceInterval,
+        expires_in_seconds: u64,
+        metadata_hash: MaybeBytes,
+        payment_link_hash: MaybeBytes,
+    ) -> Result<u64, InvoiceError> {
+        create_template(
+            &env,
+            merchant,
+            amount_usdc,
+            gross_usdc,
+            interval,
+            expires_in_seconds,
+            metadata_hash,
+            payment_link_hash,
+        )
+    }
+
+    /// Return the recurring invoice template registered under `id`.
+    /// Errors: `NotFound`.
+    pub fn get_invoice_template(env: Env, id: u64) -> Result<InvoiceTemplate, InvoiceError> {
+        get_invoice_template(&env, id)
+    }
+
+    /// Return one page of `merchant`'s templates in creation order, skipping the
+    /// first `start` entries. `limit` is capped at `MAX_PAGE_LIMIT`.
+    pub fn list_templates_by_merchant(
+        env: Env,
+        merchant: Address,
+        start: u64,
+        limit: u64,
+    ) -> Vec<InvoiceTemplate> {
+        list_templates_by_merchant(&env, merchant, start, limit)
+    }
+
+    /// Activate or deactivate a template (merchant or admin).
+    /// Errors: `NotFound`, `Unauthorized`.
+    /// Emits: `template_activated`.
+    pub fn set_template_active(
+        env: Env,
+        caller: Address,
+        id: u64,
+        active: bool,
+    ) -> Result<(), InvoiceError> {
+        set_template_active(&env, &caller, id, active)
+    }
+
+    /// Permissionless keeper call: create one invoice for each due template in
+    /// `template_ids` and advance its schedule. Unknown, inactive and
+    /// not-yet-due templates are skipped, and a period can never be invoiced
+    /// twice. At most `MAX_BATCH_SIZE` ids are accepted.
+    /// Errors: `BatchTooLarge`, `ContractPaused`.
+    /// Emits: `template_generated` per generated invoice.
+    pub fn generate_due_invoices(env: Env, template_ids: Vec<u64>) -> Result<u32, InvoiceError> {
+        generate_due_invoices(&env, template_ids)
+    }
+
+    // --- late fee (#704) ---
+
+    /// Set the late fee charged on overdue balances, in basis points. Values
+    /// above `MAX_LATE_FEE_BPS` (10_000 = 100%) are rejected.
+    /// Errors: `Unauthorized`, `InvalidLateFee`.
+    /// Emits: `late_fee_updated` carrying the old and new bps.
+    pub fn set_late_fee_bps(env: Env, admin: Address, bps: u32) -> Result<(), InvoiceError> {
+        set_late_fee_bps(&env, &admin, bps)
+    }
+
+    /// Return the configured late fee in basis points (0 if never set).
+    pub fn get_late_fee_bps(env: Env) -> u32 {
+        get_late_fee_bps(&env)
     }
 }
 

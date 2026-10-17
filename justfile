@@ -50,7 +50,7 @@ deploy:
     : "${STELLAR_ACCOUNT:?STELLAR_ACCOUNT must be set}"
     : "${STELLAR_NETWORK:?STELLAR_NETWORK must be set}"
 
-    cargo build --target wasm32-unknown-unknown --release
+    cargo build --target wasm32-unknown-unknown --release --no-default-features
 
     WASM_DIR="target/wasm32-unknown-unknown/release"
 
