@@ -10,6 +10,7 @@ members = [
     "crates/invoice-errors",
     "crates/compliance-errors",
     "crates/protocol-errors",
+    "crates/protocol-math",
 ]
 resolver = "2"
 

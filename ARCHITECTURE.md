@@ -189,12 +189,22 @@ Each contract defines error codes via a `#[contracterror]` enum. New variants **
 
 ## Shared Crates — Types, Not Storage
 
-The two shared crates (`crates/multisig` and `crates/protocol-errors`) provide types and error definitions that are imported by the contracts. They are **not deployed contracts** and have **no DataKeys or on-chain storage of their own**.
+The shared crates (`crates/multisig`, `crates/protocol-errors` and `crates/protocol-math`) provide types, math constants and error definitions that are imported by the contracts. They are **not deployed contracts** and have **no DataKeys or on-chain storage of their own**.
 
 | Crate | What it provides | Storage |
 |---|---|---|
 | `crates/multisig` | `SettlementHoldReason` enum, multisig helper types | None |
 | `crates/protocol-errors` | Shared error type utilities | None |
+| `crates/protocol-math` | Protocol-wide math constants (`BPS_DENOMINATOR`) and typed basis-point helpers | None |
+
+`crates/protocol-math` exists so a ratio means exactly one thing protocol-wide:
+`BPS_DENOMINATOR` (10 000 bps = 100.00%) is defined once, and
+`apply_bps_i128` / `split_bps_i128` perform the multiply-divide on `i128`
+amounts, returning `Option` so overflow surfaces as the caller's own error
+instead of a wrap. A contract that needs basis-point math (today: the treasury
+dispute split in `contracts/treasury/src/disputes.rs`) takes the denominator and
+the helpers from this crate rather than re-declaring its own copy of `10_000`
+(#707).
 
 If you are looking for where a type like `SettlementHoldReason` is stored on-chain, look at the **Treasury** DataKey table above (`Settlement(u64)` embeds it). The crates themselves are compile-time dependencies only.
 

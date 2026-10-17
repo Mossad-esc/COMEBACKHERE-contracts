@@ -18,6 +18,7 @@ testutils = ["soroban-sdk/testutils"]
 [dependencies]
 soroban-sdk.workspace = true
 multisig = { package = "comebackhere-multisig", path = "../../crates/multisig" }
+protocol-math = { package = "comebackhere-protocol-math", path = "../../crates/protocol-math" }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }

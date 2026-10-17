@@ -1,5 +1,11 @@
 #![no_std]
 
+/// Protocol-wide basis-point denominator (10 000 = 100.00%) and typed helpers,
+/// re-exported from `crates/protocol-math` so clients building against the
+/// treasury resolve ratios against the same value the contract validates them
+/// with (#707).
+pub use protocol_math::{apply_bps_i128, is_valid_bps, split_bps_i128, BPS_DENOMINATOR};
+
 pub use multisig::{
     DataKey, Dispute, DisputeStatus, RotationStatus, Settlement, SettlementHoldReason,
     SettlementStatus, SignerChangeKind, SignerChangeProposal, SignerChangeStatus,
