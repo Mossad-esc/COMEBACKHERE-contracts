@@ -1,7 +1,7 @@
 use crate::{
     require_admin, require_not_paused, DataKey, MAX_ALLOWED_TOKENS, Settlement,
     SettlementHoldReason, SettlementStatus, TreasuryContract, TreasuryContractArgs,
-    TreasuryContractClient,
+    TreasuryContractClient, TreasuryError,
 };
 use multisig::{meets_threshold, record_approval, require_authorized_signer, signer_weight};
 use soroban_sdk::{contractimpl, token, Address, Env, Symbol, Vec};
@@ -336,8 +336,18 @@ impl TreasuryContract {
         );
     }
 
-    pub fn batch_cancel_settlements(env: Env, admin: Address, ids: Vec<u64>) {
+    /// Cancels all pending settlements in `ids` (admin-only). IDs that are missing or not
+    /// `Pending` are skipped rather than causing the whole batch to fail.
+    /// Returns the ids that were actually cancelled.
+    /// Errors: `Unauthorized`.
+    /// Emits: `settlement_cancelled` per cancelled settlement.
+    pub fn batch_cancel_settlements(
+        env: Env,
+        admin: Address,
+        ids: Vec<u64>,
+    ) -> Result<Vec<u64>, TreasuryError> {
         require_admin(&env, &admin);
+        let mut cancelled = Vec::new(&env);
         for id in ids.iter() {
             let settlement_opt: Option<Settlement> =
                 env.storage().persistent().get(&DataKey::Settlement(id));
@@ -349,11 +359,13 @@ impl TreasuryContract {
                         .set(&DataKey::Settlement(id), &settlement);
                     env.events()
                         .publish((Symbol::new(&env, "settlement_cancelled"), id), settlement);
+                    cancelled.push_back(id);
                 }
-                // non-pending settlements are silently skipped
+                // non-pending settlements are skipped
             }
-            // missing settlement IDs are silently skipped
+            // missing settlement IDs are skipped
         }
+        Ok(cancelled)
     }
 
     pub fn get_pending_settlements(env: Env) -> Vec<Settlement> {
