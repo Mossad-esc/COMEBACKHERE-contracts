@@ -49,6 +49,12 @@ pub fn escrow_released(env: &Env, id: u64, invoice: &Invoice) {
         .publish((Symbol::new(env, "escrow_released"), id), invoice.clone());
 }
 
+/// Late fee configuration changed: data is `(old_bps, new_bps)`.
+pub fn late_fee_updated(env: &Env, old_bps: u32, new_bps: u32) {
+    env.events()
+        .publish((Symbol::new(env, "late_fee_updated"),), (old_bps, new_bps));
+}
+
 pub fn template_created(env: &Env, id: u64, template: &InvoiceTemplate) {
     env.events()
         .publish((Symbol::new(env, "template_created"), id), template.clone());
