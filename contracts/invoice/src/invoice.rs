@@ -15,6 +15,23 @@ pub const MAX_BATCH_EXPIRE: u32 = 100;
 /// Maximum bytes accepted for optional invoice hash fields.
 pub const MAX_HASH_BYTES: u32 = 64;
 
+/// Maximum `limit` accepted by a paginated invoice-index read
+/// (`get_invoices_by_payer`). Caps how many storage entries one read can walk,
+/// so a caller asking for the whole index has to page instead of pulling an
+/// unbounded slice into a single invocation.
+pub const MAX_PAGE_LIMIT: u32 = 100;
+
+/// Maximum number of invoices recorded in a single payer's index.
+///
+/// The payer index is a read-model convenience, so it is bounded per payer: the
+/// first `MAX_PAYER_INDEX_ENTRIES` invoices a payer pays are indexed, and once
+/// that many are recorded further payments are still accepted but not indexed.
+/// Without a cap, one payer's index would grow without bound and every
+/// `mark_paid` would pay for an ever-larger write. Clients that need a payer's
+/// complete history should page `get_invoices_page` or index the
+/// `invoice_paid` event stream rather than rely on the payer index.
+pub const MAX_PAYER_INDEX_ENTRIES: u64 = 500;
+
 /// Lifecycle status of an invoice.
 ///
 /// The typical happy path is: `Pending` → `Paid` → `Released`.
@@ -209,4 +226,10 @@ pub enum DataKey {
     CreationCooldown,
     /// Timestamp of the last successful create_invoice call for a given merchant.
     LastCreatedAt(Address),
+    /// Number of invoices recorded in a payer's index.
+    PayerIndexCount(Address),
+    /// Secondary index: (payer address, zero-based position) → invoice ID.
+    /// Positions are assigned in `mark_paid` order and never reused; see
+    /// [`MAX_PAYER_INDEX_ENTRIES`] for the growth cap.
+    PayerIndexEntry(Address, u64),
 }

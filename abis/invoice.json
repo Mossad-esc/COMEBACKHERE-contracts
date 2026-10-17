@@ -15,6 +15,7 @@
     "get_invoice_status",
     "get_invoice_summary",
     "get_invoices_by_merchant",
+    "get_invoices_by_payer",
     "get_invoices_page",
     "get_pending_ids",
     "initialize",

@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 #### Invoice Contract
+- `get_invoices_by_payer` (#711): payers are now indexed when `mark_paid` records them, and `get_invoices_by_payer(payer, start, limit)` pages that index so a wallet can list what is addressed to a payer without scanning every invoice. `limit` is clamped to `MAX_PAGE_LIMIT` (100), and the per-payer index is bounded at `MAX_PAYER_INDEX_ENTRIES` (500) — payments beyond the cap still succeed, they are simply not indexed.
 - `get_invoice_summary` (#712): returns an `InvoiceSummary` — the list-view projection of an invoice plus `paid_usdc`/`remaining_usdc`, so a client can read how much a payer still owes in one call instead of replaying `invoice_paid` and refund events. Derived from the same storage record as `get_invoice`, so the two can never disagree.
 
 #### Treasury Contract

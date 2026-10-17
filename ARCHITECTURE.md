@@ -89,6 +89,8 @@ sequenceDiagram
 | `GraceWindow` | Instance | `u64` | Seconds added to `expires_at` during `mark_paid` |
 | `Invoice(u64)` | Persistent | `Invoice` | Full invoice record keyed by ID |
 | `MerchantNonce(Address, u64)` | Persistent | `bool` | Idempotency guard; rejects duplicate merchant nonces |
+| `PayerIndexCount(Address)` | Persistent | `u64` | Number of invoices recorded in a payer's index (#711) |
+| `PayerIndexEntry(Address, u64)` | Persistent | `u64` | Payer → invoice ID index, appended in `mark_paid` order; capped at `MAX_PAYER_INDEX_ENTRIES` per payer (#711) |
 
 ### Treasury (`contracts/treasury`)
 
