@@ -96,6 +96,36 @@ pub(crate) fn require_not_paused(env: &Env) {
     }
 }
 
+/// Enforces the recipient's compliance tier transaction limit before a settlement
+/// transfers funds (#757). Calls `is_allowed_for_amount` on the configured
+/// `compliance-client` contract; if the recipient is not allowed for `amount` the
+/// settlement execution fails closed with `TreasuryError::ComplianceRejected`.
+///
+/// When no compliance client is configured the check is skipped so existing
+/// deployments without compliance keep working.
+pub(crate) fn require_compliance_allowed(
+    env: &Env,
+    recipient: &Address,
+    amount: i128,
+) -> Result<(), TreasuryError> {
+    let client: Option<Address> = env
+        .storage()
+        .instance()
+        .get(&DataKey::ComplianceClient);
+    let Some(compliance) = client else {
+        return Ok(());
+    };
+    let allowed: bool = env.invoke_contract(
+        &compliance,
+        &Symbol::new(env, "is_allowed_for_amount"),
+        soroban_sdk::vec![env, recipient.to_val(), amount.into()],
+    );
+    if !allowed {
+        return Err(TreasuryError::ComplianceRejected);
+    }
+    Ok(())
+}
+
 /// Writes `settlement` to storage and keeps `DataKey::PendingSettlementIndex` in sync
 /// with its `status` (#572). This is the *only* place a `Settlement` should be persisted
 /// in this crate — every write site (propose, approve, execute, cancel, expire, hold,
