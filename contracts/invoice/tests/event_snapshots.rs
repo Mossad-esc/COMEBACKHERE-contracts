@@ -1,5 +1,6 @@
 use invoice::{
-    EscrowReleasedEvent, InvoiceContract, InvoiceContractClient, MaybeAddress, MaybeBytes,
+    EscrowReleasedEvent, GraceWindowUpdatedEvent, InvoiceContract, InvoiceContractClient,
+    MaybeAddress, MaybeBytes, MaxOpenInvoicesUpdatedEvent,
 };
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
@@ -218,4 +219,32 @@ fn event_contract_unpaused_snapshot() {
     client.pause(&admin);
     client.unpause(&admin);
     assert_snapshot("contract_unpaused", &to_hex(&env, admin.clone()));
+}
+
+// --- grace_window_updated ---
+
+#[test]
+fn event_grace_window_updated_snapshot() {
+    let (env, admin, client) = setup_at(1000);
+    // First set: old=0, new=300
+    client.set_grace_window(&admin, &300);
+    let payload = GraceWindowUpdatedEvent {
+        old_seconds: 0,
+        new_seconds: 300,
+    };
+    assert_snapshot("grace_window_updated", &to_hex(&env, payload));
+}
+
+// --- max_open_invoices_updated ---
+
+#[test]
+fn event_max_open_invoices_updated_snapshot() {
+    let (env, admin, client) = setup_at(1000);
+    // First set: old=0, new=10
+    client.set_max_open_invoices(&admin, &10u32);
+    let payload = MaxOpenInvoicesUpdatedEvent {
+        old_limit: 0,
+        new_limit: 10,
+    };
+    assert_snapshot("max_open_invoices_updated", &to_hex(&env, payload));
 }

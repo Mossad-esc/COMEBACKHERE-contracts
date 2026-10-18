@@ -13,8 +13,8 @@ mod refund;
 mod validation;
 
 pub use events::{
-    EscrowReleasedEvent, InvoiceAmountUpdatedEvent, InvoiceExpiryExtendedEvent,
-    RefundProcessedEvent,
+    EscrowReleasedEvent, GraceWindowUpdatedEvent, InvoiceAmountUpdatedEvent,
+    InvoiceExpiryExtendedEvent, MaxOpenInvoicesUpdatedEvent, RefundProcessedEvent,
 };
 pub use invoice::StatusTransition;
 pub use invoice::{

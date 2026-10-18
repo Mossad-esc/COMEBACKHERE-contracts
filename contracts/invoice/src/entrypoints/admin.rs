@@ -1,5 +1,7 @@
 use crate::events;
-use crate::events::InvoiceExpiryExtendedEvent;
+use crate::events::{
+    GraceWindowUpdatedEvent, InvoiceExpiryExtendedEvent, MaxOpenInvoicesUpdatedEvent,
+};
 use crate::validation::require_admin;
 use crate::{
     DataKey, Invoice, InvoiceContract, InvoiceContractArgs, InvoiceContractClient, InvoiceError,
@@ -24,11 +26,24 @@ impl InvoiceContract {
 
     /// Set the grace window (seconds) added to expires_at when checking payment validity.
     /// Allows a short buffer after quote expiry for in-flight payments.
+    /// Emits `grace_window_updated` with old and new values.
     pub fn set_grace_window(env: Env, admin: Address, seconds: u64) -> Result<(), InvoiceError> {
         require_admin(&env, &admin)?;
+        let old_seconds: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::GraceWindow)
+            .unwrap_or(0u64);
         env.storage()
             .instance()
             .set(&DataKey::GraceWindow, &seconds);
+        events::grace_window_updated(
+            &env,
+            &GraceWindowUpdatedEvent {
+                old_seconds,
+                new_seconds: seconds,
+            },
+        );
         Ok(())
     }
 
@@ -38,6 +53,43 @@ impl InvoiceContract {
             .instance()
             .get(&DataKey::GraceWindow)
             .unwrap_or(0u64)
+    }
+
+    // --- max open invoices limit ---
+
+    /// Set the maximum number of open (pending) invoices a single merchant may
+    /// hold at one time. Pass 0 to disable the limit (default).
+    /// Emits `max_open_invoices_updated` with old and new values.
+    pub fn set_max_open_invoices(
+        env: Env,
+        admin: Address,
+        limit: u32,
+    ) -> Result<(), InvoiceError> {
+        require_admin(&env, &admin)?;
+        let old_limit: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::MaxOpenInvoices)
+            .unwrap_or(0u32);
+        env.storage()
+            .instance()
+            .set(&DataKey::MaxOpenInvoices, &limit);
+        events::max_open_invoices_updated(
+            &env,
+            &MaxOpenInvoicesUpdatedEvent {
+                old_limit,
+                new_limit: limit,
+            },
+        );
+        Ok(())
+    }
+
+    /// Return the current max-open-invoices limit (0 = no limit).
+    pub fn get_max_open_invoices(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::MaxOpenInvoices)
+            .unwrap_or(0u32)
     }
 
     // --- #15: two-step admin transfer ---

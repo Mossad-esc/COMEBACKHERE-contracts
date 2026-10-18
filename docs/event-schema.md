@@ -51,6 +51,8 @@ all entrypoints in `contracts/invoice/src/entrypoints/` call through these helpe
 | `invoice_amended` | `(Symbol, id: u64)` | `InvoiceAmountUpdatedEvent` | `amend_invoice` |
 | `invoice_expiry_extended` | `(Symbol, id: u64)` | `InvoiceExpiryExtendedEvent` | `extend_expiry` |
 | `refund_processed` | `(Symbol, id: u64)` | `RefundProcessedEvent` | `process_refund` |
+| `grace_window_updated` | `(Symbol,)` | `GraceWindowUpdatedEvent` | `set_grace_window` |
+| `max_open_invoices_updated` | `(Symbol,)` | `MaxOpenInvoicesUpdatedEvent` | `set_max_open_invoices` |
 
 **`Invoice`** (`contracts/invoice/src/invoice.rs`):
 `id: u64`, `merchant: Address`, `amount_usdc: i128`, `gross_usdc: i128`,
@@ -79,6 +81,19 @@ so an indexer can show a customer exactly what was deducted from their refund
 without re-deriving the fee arithmetic: `gross_amount` is what was paid,
 `processing_fee` is the merchant gateway's `fee_bps` share, `network_fee` is the
 flat payout cost, and `net_amount` is the amount actually transferred.
+
+**`GraceWindowUpdatedEvent`**: `old_seconds: u64`, `new_seconds: u64`.
+
+Emitted by `set_grace_window` each time the admin changes the grace window config.
+Carries both old and new values so off-chain indexers can reconstruct the full
+history of the parameter without reading on-chain state at every past ledger.
+
+**`MaxOpenInvoicesUpdatedEvent`**: `old_limit: u32`, `new_limit: u32`.
+
+Emitted by `set_max_open_invoices` each time the admin changes the per-merchant
+open-invoice cap. A `new_limit` of `0` means the limit is disabled (default). Like
+`GraceWindowUpdatedEvent`, both old and new values are included so indexers can
+track parameter history without a separate state read.
 
 ### Reconstructing invoice status history
 

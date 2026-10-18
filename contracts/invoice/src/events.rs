@@ -140,6 +140,34 @@ pub fn contract_unpaused(env: &Env, admin: &Address) {
         .publish((Symbol::new(env, "contract_unpaused"),), admin);
 }
 
+/// Emitted when the admin updates the grace window configuration.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GraceWindowUpdatedEvent {
+    pub old_seconds: u64,
+    pub new_seconds: u64,
+}
+
+pub fn grace_window_updated(env: &Env, event: &GraceWindowUpdatedEvent) {
+    env.events()
+        .publish((Symbol::new(env, "grace_window_updated"),), event.clone());
+}
+
+/// Emitted when the admin updates the max-open-invoices limit.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MaxOpenInvoicesUpdatedEvent {
+    pub old_limit: u32,
+    pub new_limit: u32,
+}
+
+pub fn max_open_invoices_updated(env: &Env, event: &MaxOpenInvoicesUpdatedEvent) {
+    env.events().publish(
+        (Symbol::new(env, "max_open_invoices_updated"),),
+        event.clone(),
+    );
+}
+
 pub fn invoice_amended(env: &Env, event: &InvoiceAmountUpdatedEvent) {
     env.events().publish(
         (Symbol::new(env, "invoice_amended"), event.id),
