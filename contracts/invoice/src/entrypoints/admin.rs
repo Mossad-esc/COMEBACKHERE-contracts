@@ -92,6 +92,27 @@ impl InvoiceContract {
             .unwrap_or(0u32)
     }
 
+    // --- late-fee configuration ---
+
+    /// Set the late-fee rate in basis points (1 bps = 0.01%).
+    /// Applied to overdue invoice amounts by the settlement layer.
+    /// Admin-only. Pass 0 to disable the late fee (default).
+    pub fn set_late_fee_bps(env: Env, admin: Address, bps: u32) -> Result<(), InvoiceError> {
+        require_admin(&env, &admin)?;
+        env.storage()
+            .instance()
+            .set(&DataKey::LateFee, &bps);
+        Ok(())
+    }
+
+    /// Return the current late-fee rate in basis points (0 if not set).
+    pub fn get_late_fee_bps(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::LateFee)
+            .unwrap_or(0u32)
+    }
+
     // --- #15: two-step admin transfer ---
 
     /// Initiate admin transfer. Current admin nominates `new_admin`.
