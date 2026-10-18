@@ -1,6 +1,6 @@
 use crate::{
     require_admin, require_not_paused, DataKey, Settlement, SettlementHoldReason, SettlementStatus,
-    TreasuryContract, TreasuryContractArgs, TreasuryContractClient, TreasuryError,
+    TreasuryContract, TreasuryError,
     MAX_ALLOWED_TOKENS,
 };
 use multisig::{meets_threshold, record_approval, require_authorized_signer, signer_weight};

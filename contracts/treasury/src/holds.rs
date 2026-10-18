@@ -1,6 +1,6 @@
 use crate::{
     require_admin, DataKey, Settlement, SettlementHoldReason, SettlementStatus, TreasuryContract,
-    TreasuryContractArgs, TreasuryContractClient, TreasuryError,
+    TreasuryError,
 };
 use soroban_sdk::{contractimpl, Address, Env, Symbol};
 

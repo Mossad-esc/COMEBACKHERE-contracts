@@ -1,6 +1,5 @@
 use crate::{require_admin, require_not_paused, DataKey, TreasuryContract, TreasuryError};
-#[allow(unused_imports)]
-use crate::{TreasuryContractArgs, TreasuryContractClient};
+
 use soroban_sdk::{contractimpl, token, Address, Env, Symbol, Vec};
 
 #[contractimpl]
