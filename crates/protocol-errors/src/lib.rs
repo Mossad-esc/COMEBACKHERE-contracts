@@ -92,6 +92,9 @@ fn invoice_description(e: InvoiceError) -> &'static str {
         RefundTokenNotSet => "The invoice has no token to refund through.",
         RefundFeeTooHigh => "The refund fee is too high.",
         ArithmeticOverflow => "The calculation overflowed.",
+        DiscountExceedsAmount => "The discount amount exceeds the invoice amount.",
+        DiscountDeadlineAfterExpiry => "The discount deadline is after the invoice expiry.",
+        MemoTooLong => "The memo field is too long.",
     }
 }
 

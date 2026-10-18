@@ -60,11 +60,7 @@ impl InvoiceContract {
     /// Set the maximum number of open (pending) invoices a single merchant may
     /// hold at one time. Pass 0 to disable the limit (default).
     /// Emits `max_open_invoices_updated` with old and new values.
-    pub fn set_max_open_invoices(
-        env: Env,
-        admin: Address,
-        limit: u32,
-    ) -> Result<(), InvoiceError> {
+    pub fn set_max_open_invoices(env: Env, admin: Address, limit: u32) -> Result<(), InvoiceError> {
         require_admin(&env, &admin)?;
         let old_limit: u32 = env
             .storage()
@@ -99,9 +95,7 @@ impl InvoiceContract {
     /// Admin-only. Pass 0 to disable the late fee (default).
     pub fn set_late_fee_bps(env: Env, admin: Address, bps: u32) -> Result<(), InvoiceError> {
         require_admin(&env, &admin)?;
-        env.storage()
-            .instance()
-            .set(&DataKey::LateFee, &bps);
+        env.storage().instance().set(&DataKey::LateFee, &bps);
         Ok(())
     }
 

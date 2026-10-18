@@ -11,8 +11,8 @@
 //      code points.
 //   5. MaybeBytes::None (no memo) is always accepted regardless of the limit.
 
-use invoice::{InvoiceError, MaybeAddress, MaybeBytes, MAX_MEMO_BYTES};
 use invoice::{InvoiceContract, InvoiceContractClient};
+use invoice::{InvoiceError, MaybeAddress, MaybeBytes, MAX_MEMO_BYTES};
 use soroban_sdk::{testutils::Address as _, Address, Bytes, Env};
 
 extern crate std;
