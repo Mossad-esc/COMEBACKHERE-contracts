@@ -5,8 +5,9 @@ use crate::{
 use multisig::{meets_threshold, record_approval, require_authorized_signer, signer_weight};
 use soroban_sdk::{contractimpl, Address, Env, String, Symbol, Vec};
 
-/// Maximum length (in bytes) accepted for an optional signer label (#568).
+/// Maximum length (in bytes) accepted for an optional signer label (#568, #740).
 /// Labels are purely informational and are never consulted for authorisation.
+/// `set_signer_label` rejects any label longer than this to bound storage costs.
 pub(crate) const MAX_SIGNER_LABEL_LEN: u32 = 64;
 
 #[contractimpl]
@@ -200,6 +201,6 @@ impl TreasuryContract {
                 return Err(TreasuryError::RotationProposalCooldown);
             }
         }
-        env.storage().instance().set(&cooldown_key, &no
+        env.storage().instance().set(&cooldown_key
 
-/* … truncated 5046 chars — edit only what you need near the top … */
+/* … truncated 77 chars — edit only what you need near the top … */

@@ -88,10 +88,21 @@ impl TreasuryContract {
     pub fn set_signer(env: Env, signer: Address, weight: u32) -> Result<(), TreasuryError> {
         signers::set_signer(&env, signer, weight)
     }
+
+    /// Sets a human-readable label for `signer`. The label is capped at
+    /// `MAX_SIGNER_LABEL_LEN` bytes to bound storage costs (#740).
+    /// Errors: `Unauthorized`, `SignerLabelTooLong`.
+    pub fn set_signer_label(env: Env, signer: Address, label: String) -> Result<(), TreasuryError> {
+        signers::set_signer_label(&env, signer, label)
+    }
 }
 
 /// Maximum number of tokens allowed in the allowlist to prevent unbounded storage growth.
 pub(crate) const MAX_ALLOWED_TOKENS: u32 = 20;
+
+/// Maximum length, in bytes, of a signer label accepted by `set_signer_label`.
+/// Bounds storage costs by rejecting unbounded caller-supplied strings (#740).
+pub(crate) const MAX_SIGNER_LABEL_LEN: u32 = 64;
 
 pub(crate) fn require_admin(env: &Env, admin: &Address) {
     admin.require_auth();
