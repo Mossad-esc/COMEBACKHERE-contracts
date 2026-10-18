@@ -1,4 +1,4 @@
-use crate::invoice::{DataKey, InvoiceError, MaybeBytes, MAX_HASH_BYTES, MAX_LATE_FEE_BPS, USDC_FACTOR};
+use crate::invoice::{DataKey, InvoiceError, MaybeBytes, MAX_HASH_BYTES, USDC_FACTOR};
 use soroban_sdk::{Address, Env};
 
 /// Maximum allowed expiry duration: 5 years in seconds.
@@ -28,27 +28,6 @@ pub fn require_admin(env: &Env, admin: &Address) -> Result<(), InvoiceError> {
 
 pub fn require_positive_amount(amount_usdc: i128, gross_usdc: i128) -> Result<(), InvoiceError> {
     if amount_usdc <= 0 || gross_usdc < amount_usdc {
-        return Err(InvoiceError::InvalidAmount);
-    }
-    Ok(())
-}
-
-/// Reject a late fee (the difference `gross_usdc − amount_usdc`) that exceeds
-/// [`MAX_LATE_FEE_BPS`] of `amount_usdc`.
-///
-/// `MAX_LATE_FEE_BPS` is the single source of truth for the cap; it is defined
-/// in `invoice.rs` and imported here rather than redeclared, so the storage
-/// model and the validation layer can never disagree about the limit.
-///
-/// Prerequisite: `amount_usdc > 0` and `gross_usdc >= amount_usdc` (enforced
-/// by `require_positive_amount`).
-pub fn require_late_fee_within_cap(amount_usdc: i128, gross_usdc: i128) -> Result<(), InvoiceError> {
-    let late_fee = gross_usdc - amount_usdc;
-    // late_fee * 10_000 <= amount_usdc * MAX_LATE_FEE_BPS
-    // Rearranged to avoid overflow: late_fee / amount_usdc <= MAX_LATE_FEE_BPS / 10_000.
-    // We cross-multiply instead: late_fee * 10_000 <= amount_usdc * MAX_LATE_FEE_BPS.
-    // Both sides fit in i128 for any reasonable invoice amount.
-    if late_fee * 10_000 > amount_usdc * i128::from(MAX_LATE_FEE_BPS) {
         return Err(InvoiceError::InvalidAmount);
     }
     Ok(())

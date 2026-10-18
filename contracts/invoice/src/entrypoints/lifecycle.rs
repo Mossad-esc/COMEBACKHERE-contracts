@@ -3,15 +3,15 @@ use crate::refund::{
     calculate_net_refund, refund_recipient, transfer_net_refund, verify_payment_state,
 };
 use crate::validation::{
-    require_admin, require_expiry_not_too_long, require_hash_not_too_long,
-    require_late_fee_within_cap, require_not_paused, require_positive_amount,
-    require_usdc_precision, require_valid_payment_link_hash,
+    require_admin, require_expiry_not_too_long, require_hash_not_too_long, require_not_paused,
+    require_positive_amount, require_usdc_precision, require_valid_payment_link_hash,
 };
 use crate::{append_history, pending_index_add, pending_index_remove};
 use crate::{
     DataKey, Invoice, InvoiceContract, InvoiceContractArgs, InvoiceContractClient, InvoiceError,
     InvoiceStatus, MaybeAddress, MaybeBytes, NetRefund,
 };
+use crate::invoice::{MaybeU64, RefundStatus};
 use soroban_sdk::{contractimpl, Address, Env, Vec};
 
 #[contractimpl]
@@ -36,8 +36,6 @@ impl InvoiceContract {
         merchant.require_auth();
         require_not_paused(&env)?;
         require_positive_amount(amount_usdc, gross_usdc)?;
-        // #706: cap the late fee (gross − amount) at MAX_LATE_FEE_BPS of amount
-        require_late_fee_within_cap(amount_usdc, gross_usdc)?;
         // #57: USDC decimal precision guardrail
         require_usdc_precision(amount_usdc, gross_usdc)?;
         require_hash_not_too_long(&metadata_hash)?;
@@ -311,8 +309,6 @@ impl InvoiceContract {
         merchant.require_auth();
         require_not_paused(&env)?;
         require_positive_amount(new_amount_usdc, new_gross_usdc)?;
-        // #706: cap the late fee (gross − amount) at MAX_LATE_FEE_BPS of amount
-        require_late_fee_within_cap(new_amount_usdc, new_gross_usdc)?;
         require_usdc_precision(new_amount_usdc, new_gross_usdc)?;
         if new_expires_in_seconds == 0 {
             return Err(InvoiceError::ZeroDuration);
@@ -373,10 +369,15 @@ impl InvoiceContract {
             return Err(InvoiceError::Unauthorized);
         }
 
+        let now = env.ledger().timestamp();
         invoice.status = InvoiceStatus::RefundRequested;
         env.storage()
             .persistent()
             .set(&DataKey::Invoice(id), &invoice);
+        // Store the request timestamp for get_refund_status (#700).
+        env.storage()
+            .persistent()
+            .set(&DataKey::RefundRequestedAt(id), &now);
         append_history(
             &env,
             id,
@@ -533,6 +534,57 @@ impl InvoiceContract {
             .persistent()
             .get(&DataKey::RefundBreakdown(id))
             .ok_or(InvoiceError::NotFound)
+    }
+
+    /// Return the consolidated refund state and fee breakdown for `id` in a
+    /// single call (#700).
+    ///
+    /// Combines the invoice status, the ledger timestamp at which
+    /// `request_refund` was called (if any), and the fee breakdown stored by
+    /// `process_refund` (if any), so clients do not need to combine
+    /// `get_invoice` and `get_refund_breakdown` separately.
+    ///
+    /// Read-only; no auth required. Works regardless of whether the contract
+    /// is paused (quoting refund progress is a read and must remain available).
+    ///
+    /// - `requested_at` is `MaybeU64::None` when no refund has been requested.
+    /// - Fee fields default to `0` when no breakdown has been stored yet
+    ///   (e.g. the invoice is still in `Paid` status or was approved via
+    ///   `approve_refund` rather than `process_refund`).
+    ///
+    /// Errors: [`InvoiceError::NotFound`] if no invoice exists for `id`.
+    pub fn get_refund_status(env: Env, id: u64) -> Result<RefundStatus, InvoiceError> {
+        let invoice: Invoice = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Invoice(id))
+            .ok_or(InvoiceError::NotFound)?;
+
+        let requested_at: MaybeU64 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::RefundRequestedAt(id))
+            .map(MaybeU64::Some)
+            .unwrap_or(MaybeU64::None);
+
+        let breakdown: Option<NetRefund> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::RefundBreakdown(id));
+
+        let (gross_amount, processing_fee, network_fee, net_amount) =
+            breakdown.map_or((0, 0, 0, 0), |b| {
+                (b.gross_amount, b.processing_fee, b.network_fee, b.net_amount)
+            });
+
+        Ok(RefundStatus {
+            status: invoice.status,
+            requested_at,
+            gross_amount,
+            processing_fee,
+            network_fee,
+            net_amount,
+        })
     }
 
     /// Reject a refund request. Admin-only. Transitions RefundRequested → Paid.

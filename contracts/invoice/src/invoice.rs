@@ -112,6 +112,47 @@ pub struct StatusTransition {
     pub timestamp: u64,
 }
 
+/// A nullable `u64` wrapper compatible with `#[contracttype]`.
+///
+/// Used to represent an optional timestamp (e.g. `requested_at` before a
+/// refund has been requested). `Option<u64>` is not supported by the
+/// Soroban contract-type macro in the same way, so this enum mirrors the
+/// `MaybeAddress`/`MaybeBytes` pattern already established in this file.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum MaybeU64 {
+    None,
+    Some(u64),
+}
+
+/// Consolidated refund state for an invoice, returned by `get_refund_status`.
+///
+/// Combines the invoice's refund-related status fields with the fee breakdown
+/// stored under `DataKey::RefundBreakdown` (if any), so a client does not
+/// need to call both `get_invoice` and `get_refund_breakdown` to render a
+/// refund progress view.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RefundStatus {
+    /// Current lifecycle status of the invoice.
+    pub status: InvoiceStatus,
+    /// Ledger timestamp at which `request_refund` was called, if applicable.
+    /// `MaybeU64::None` when no refund has been requested.
+    pub requested_at: MaybeU64,
+    /// Gross amount the refund was (or would be) computed from.
+    /// `0` when no refund breakdown has been recorded yet.
+    pub gross_amount: i128,
+    /// Payment-gateway processing fee deducted from the gross amount.
+    /// `0` when no refund breakdown has been recorded yet.
+    pub processing_fee: i128,
+    /// Flat network fee deducted from the gross amount.
+    /// `0` when no refund breakdown has been recorded yet.
+    pub network_fee: i128,
+    /// Net amount the payer received (or will receive).
+    /// `0` when no refund breakdown has been recorded yet.
+    pub net_amount: i128,
+}
+
 /// Storage keys for invoice contract state.
 ///
 /// Used as keys for Soroban instance and persistent storage lookups. Variants
@@ -145,4 +186,11 @@ pub enum DataKey {
     /// Fee breakdown of a processed refund: gross amount, processing fee,
     /// network fee and the net amount transferred to the payer (#71).
     RefundBreakdown(u64),
+    /// Admin-configured window (seconds) after payment within which a payer
+    /// may call request_refund. Zero means no limit (current behaviour).
+    RefundWindow,
+    /// Ledger timestamp at which request_refund was called for this invoice.
+    /// Stored so get_refund_status can surface it without re-reading the
+    /// full invoice history.
+    RefundRequestedAt(u64),
 }

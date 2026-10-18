@@ -19,7 +19,7 @@ pub use events::{
 pub use invoice::StatusTransition;
 pub use invoice::{
     BatchInvoiceParams, DataKey, Invoice, InvoiceError, InvoiceStatus, MaybeAddress, MaybeBytes,
-    MAX_BATCH_EXPIRE, MAX_BATCH_SIZE, MAX_LATE_FEE_BPS,
+    MaybeU64, RefundStatus, MAX_BATCH_EXPIRE, MAX_BATCH_SIZE, MAX_LATE_FEE_BPS,
 };
 pub use refund::{
     calculate_net_refund, refund_recipient, transfer_net_refund, verify_payment_state, NetRefund,
