@@ -281,9 +281,13 @@ impl TreasuryContract {
     }
 
     /// Transfers `partial_amount` tokens to the merchant and marks the settlement as `PartiallyExecuted`.
+    /// Cumulative executed amounts across multiple calls are tracked under
+    /// `DataKey::PartialExecutedTotal` and accumulated with `checked_add` to prevent
+    /// overflow from wrapping (#578). The cumulative total must never exceed the
+    /// settlement's original `amount`; attempting to do so returns `InvalidAmount`.
     /// Panics: `ContractPaused`, `UnauthorizedSigner`.
     /// Errors: `SettlementNotFound`, `AlreadyExecuted`, `InvalidAmount`, `ThresholdNotConfigured`,
-    ///         `ThresholdNotMet`, `InvalidTokenContract`.
+    ///         `ThresholdNotMet`, `InvalidTokenContract`, `ArithmeticOverflow`.
     /// Emits: `settlement_partial_executed`.
     pub fn partially_execute_settlement(
         env: Env,
@@ -319,6 +323,23 @@ impl TreasuryContract {
         if token_contract == env.current_contract_address() {
             return Err(TreasuryError::InvalidTokenContract);
         }
+        // Accumulate the cumulative executed total using checked arithmetic to
+        // guard against overflow wrap-around (#578).
+        let prev_executed: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::PartialExecutedTotal(settlement_id))
+            .unwrap_or(0i128);
+        let new_executed = prev_executed
+            .checked_add(partial_amount)
+            .ok_or(TreasuryError::ArithmeticOverflow)?;
+        if new_executed > settlement.amount {
+            return Err(TreasuryError::InvalidAmount);
+        }
+        env.storage().persistent().set(
+            &DataKey::PartialExecutedTotal(settlement_id),
+            &new_executed,
+        );
         let treasury = env.current_contract_address();
         let token_client = token::Client::new(&env, &token_contract);
         token_client.transfer(&treasury, &settlement.merchant_address, &partial_amount);
