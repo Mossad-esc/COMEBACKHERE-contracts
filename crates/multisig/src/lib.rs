@@ -66,6 +66,11 @@ pub enum TreasuryError {
     // Appended for #447: the referenced signer/threshold change has already been
     // executed or cancelled and cannot be acted on again.
     SignerChangeAlreadyFinalised = 40,
+    // Appended at 41 (#691): `QuorumBreak` was mistakenly assigned discriminant 38,
+    // colliding with `SignerChangeTooEarly = 38` (which shipped first). Moving it here
+    // to the next free slot resolves the `E0081` duplicate-discriminant build error
+    // without renumbering any variant that has already shipped.
+    QuorumBreak = 41,
 }
 
 // Issue #48: reason codes attached to a held settlement; None means not on hold
