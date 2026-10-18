@@ -92,6 +92,7 @@ fn invoice_description(e: InvoiceError) -> &'static str {
         RefundTokenNotSet => "The invoice has no token to refund through.",
         RefundFeeTooHigh => "The refund fee is too high.",
         ArithmeticOverflow => "The calculation overflowed.",
+        RefundWindowClosed => "The refund window for this invoice has closed.",
     }
 }
 

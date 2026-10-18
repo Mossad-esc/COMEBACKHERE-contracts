@@ -1,4 +1,5 @@
 use crate::events::{self, InvoiceAmountUpdatedEvent};
+use crate::invoice::{MaybeU64, RefundStatus};
 use crate::refund::{
     calculate_net_refund, refund_recipient, transfer_net_refund, verify_payment_state,
 };
@@ -11,7 +12,6 @@ use crate::{
     DataKey, Invoice, InvoiceContract, InvoiceContractArgs, InvoiceContractClient, InvoiceError,
     InvoiceStatus, MaybeAddress, MaybeBytes, NetRefund,
 };
-use crate::invoice::{MaybeU64, RefundStatus};
 use soroban_sdk::{contractimpl, Address, Env, Vec};
 
 #[contractimpl]
@@ -369,6 +369,24 @@ impl InvoiceContract {
             return Err(InvoiceError::Unauthorized);
         }
 
+        // #702: reject refund requests outside the configurable window.
+        // A window of 0 means no limit (preserving the current behaviour).
+        let refund_window: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::RefundWindow)
+            .unwrap_or(0u64);
+        if refund_window > 0 {
+            if let Some(paid_at) = invoice.paid_at {
+                // paid_at + refund_window may overflow; use saturating_add so a
+                // very large window never wraps to a timestamp in the past.
+                let deadline = paid_at.saturating_add(refund_window);
+                if env.ledger().timestamp() >= deadline {
+                    return Err(InvoiceError::RefundWindowClosed);
+                }
+            }
+        }
+
         let now = env.ledger().timestamp();
         invoice.status = InvoiceStatus::RefundRequested;
         env.storage()
@@ -574,7 +592,12 @@ impl InvoiceContract {
 
         let (gross_amount, processing_fee, network_fee, net_amount) =
             breakdown.map_or((0, 0, 0, 0), |b| {
-                (b.gross_amount, b.processing_fee, b.network_fee, b.net_amount)
+                (
+                    b.gross_amount,
+                    b.processing_fee,
+                    b.network_fee,
+                    b.net_amount,
+                )
             });
 
         Ok(RefundStatus {

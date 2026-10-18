@@ -40,6 +40,28 @@ impl InvoiceContract {
             .unwrap_or(0u64)
     }
 
+    // --- #702: configurable refund window ---
+
+    /// Set the refund window: how many seconds after `paid_at` a payer may
+    /// call `request_refund`. Pass `0` to remove the limit (current behaviour:
+    /// refunds accepted at any time after payment, giving merchants indefinite
+    /// exposure).
+    pub fn set_refund_window(env: Env, admin: Address, seconds: u64) -> Result<(), InvoiceError> {
+        require_admin(&env, &admin)?;
+        env.storage()
+            .instance()
+            .set(&DataKey::RefundWindow, &seconds);
+        Ok(())
+    }
+
+    /// Return the current refund window in seconds (0 means no limit).
+    pub fn get_refund_window(env: Env) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKey::RefundWindow)
+            .unwrap_or(0u64)
+    }
+
     // --- #15: two-step admin transfer ---
 
     /// Initiate admin transfer. Current admin nominates `new_admin`.

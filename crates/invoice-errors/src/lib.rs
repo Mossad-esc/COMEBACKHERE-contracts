@@ -52,5 +52,9 @@ declare_contract_error! {
         // Appended for #71: refund fee arithmetic (`gross_amount * fee_bps`)
         // overflowed, so the net payout cannot be computed.
         ArithmeticOverflow = 28,
+        // Appended for #702: request_refund was called after the configurable
+        // refund window (paid_at + refund_window_secs) has elapsed. Zero means
+        // no limit, preserving the current behaviour.
+        RefundWindowClosed = 29,
     }
 }
