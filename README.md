@@ -205,3 +205,8 @@ Before submitting a pull request, make sure to:
 # License
 
 This project is licensed under the **MIT License**.
+
+## Handsoff notes
+
+<!-- handsoff-issue-748 -->
+- #748: Split `contracts/compliance/src/lib.rs` (1,677 lines) into submodules
