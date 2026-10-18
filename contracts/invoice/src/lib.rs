@@ -26,6 +26,7 @@ pub use refund::{
     BPS_DENOMINATOR, MAX_REFUND_FEE_BPS, REFUND_NETWORK_FEE,
 };
 pub use validation::require_valid_discount;
+pub use validation::{require_memo_not_too_long, MAX_MEMO_BYTES};
 
 use soroban_sdk::{contract, Env, Vec};
 

@@ -4,6 +4,9 @@ use soroban_sdk::{Address, Env};
 /// Maximum allowed expiry duration: 5 years in seconds.
 pub const MAX_EXPIRY_SECONDS: u64 = 5 * 365 * 24 * 60 * 60;
 
+/// Maximum byte length for the optional invoice memo field.
+pub const MAX_MEMO_BYTES: u32 = 256;
+
 pub fn require_not_paused(env: &Env) -> Result<(), InvoiceError> {
     let paused: bool = env
         .storage()
@@ -88,6 +91,21 @@ pub fn require_valid_discount(
     }
     if discount_deadline > expires_at {
         return Err(InvoiceError::DiscountDeadlineAfterExpiry);
+    }
+    Ok(())
+}
+
+/// Reject a memo that exceeds MAX_MEMO_BYTES bytes.
+///
+/// The limit is enforced in **bytes**, not characters: a 256-byte string
+/// containing 128 two-byte UTF-8 code points is still 256 bytes and still
+/// passes, but a string of 128 two-byte characters whose byte length exceeds
+/// MAX_MEMO_BYTES will be rejected.
+pub fn require_memo_not_too_long(memo: &MaybeBytes) -> Result<(), InvoiceError> {
+    if let MaybeBytes::Some(bytes) = memo {
+        if bytes.len() > MAX_MEMO_BYTES {
+            return Err(InvoiceError::MemoTooLong);
+        }
     }
     Ok(())
 }

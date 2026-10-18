@@ -58,5 +58,9 @@ declare_contract_error! {
         // Appended for #708: a discount early-pay deadline that falls after the
         // invoice expiry, making it impossible to honour the discount window.
         DiscountDeadlineAfterExpiry = 30,
+        // Appended for #709: the memo field supplied to create_invoice exceeds
+        // MAX_MEMO_BYTES, which would waste storage and make deserialization
+        // unpredictable for off-chain consumers.
+        MemoTooLong = 31,
     }
 }
