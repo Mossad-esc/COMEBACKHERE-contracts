@@ -71,6 +71,32 @@ impl TreasuryContract {
             .publish((Symbol::new(&env, "treasury_initialized"),), admin);
         Ok(())
     }
+
+    /// Proposes `new_admin` as the next treasury admin (two-step handover, #741).
+    /// The current admin must authorise the call. The proposal stays pending until
+    /// `accept_admin` is called by `new_admin`, or it is cancelled/expires.
+    /// Errors: `Unauthorized`, `AdminTransferPending`.
+    /// Emits: `admin_transfer_proposed`.
+    pub fn transfer_admin(
+        env: Env,
+        new_admin: Address,
+    ) -> Result<(), TreasuryError> {
+        admin::transfer_admin(&env, &new_admin)
+    }
+
+    /// Finalises a pending admin handover. Must be called by the proposed `new_admin`.
+    /// Errors: `Unauthorized`, `NoPendingAdminTransfer`, `AdminTransferExpired`.
+    /// Emits: `admin_transferred`.
+    pub fn accept_admin(env: Env) -> Result<(), TreasuryError> {
+        admin::accept_admin(&env)
+    }
+
+    /// Cancels a pending admin handover. Must be called by the current admin.
+    /// Errors: `Unauthorized`, `NoPendingAdminTransfer`.
+    /// Emits: `admin_transfer_cancelled`.
+    pub fn cancel_admin_transfer(env: Env) -> Result<(), TreasuryError> {
+        admin::cancel_admin_transfer(&env)
+    }
 }
 
 /// Maximum number of tokens allowed in the allowlist to prevent unbounded storage growth.
