@@ -80,6 +80,14 @@ impl TreasuryContract {
     pub fn get_partial_progress(env: Env, settlement_id: u64) -> Result<(i128, i128, i128), TreasuryError> {
         settlements::get_partial_progress(&env, settlement_id)
     }
+
+    /// Registers or updates a signer's approval weight. Rejects a weight of `0` with
+    /// `ZeroSignerWeight` — callers must use `remove_signer` to drop a signer instead of
+    /// leaving a zero-weight entry in `SignerList` (#739).
+    /// Errors: `Unauthorized`, `ZeroSignerWeight`.
+    pub fn set_signer(env: Env, signer: Address, weight: u32) -> Result<(), TreasuryError> {
+        signers::set_signer(&env, signer, weight)
+    }
 }
 
 /// Maximum number of tokens allowed in the allowlist to prevent unbounded storage growth.
