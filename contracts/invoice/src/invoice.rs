@@ -5,6 +5,14 @@ pub use invoice_errors::InvoiceError;
 /// USDC on Stellar uses 7 decimal places: 1 USDC = 10_000_000 stroops.
 pub const USDC_FACTOR: i128 = 10_000_000;
 
+/// Maximum allowed late fee expressed in basis points.
+///
+/// `gross_usdc` may exceed `amount_usdc` by at most this many bps of
+/// `amount_usdc`. 1 000 bps = 10 %. This is the single source of truth for
+/// the late-fee cap; `validation.rs` imports and uses this constant rather
+/// than redeclaring it.
+pub const MAX_LATE_FEE_BPS: u32 = 1_000;
+
 /// Maximum number of elements accepted by any batch entrypoint (batch_create_invoice,
 /// batch_expire) per call, to bound per-invocation storage writes and gas.
 pub const MAX_BATCH_SIZE: u32 = 50;

@@ -3,8 +3,9 @@ use crate::refund::{
     calculate_net_refund, refund_recipient, transfer_net_refund, verify_payment_state,
 };
 use crate::validation::{
-    require_admin, require_expiry_not_too_long, require_hash_not_too_long, require_not_paused,
-    require_positive_amount, require_usdc_precision, require_valid_payment_link_hash,
+    require_admin, require_expiry_not_too_long, require_hash_not_too_long,
+    require_late_fee_within_cap, require_not_paused, require_positive_amount,
+    require_usdc_precision, require_valid_payment_link_hash,
 };
 use crate::{append_history, pending_index_add, pending_index_remove};
 use crate::{
@@ -35,6 +36,8 @@ impl InvoiceContract {
         merchant.require_auth();
         require_not_paused(&env)?;
         require_positive_amount(amount_usdc, gross_usdc)?;
+        // #706: cap the late fee (gross − amount) at MAX_LATE_FEE_BPS of amount
+        require_late_fee_within_cap(amount_usdc, gross_usdc)?;
         // #57: USDC decimal precision guardrail
         require_usdc_precision(amount_usdc, gross_usdc)?;
         require_hash_not_too_long(&metadata_hash)?;
@@ -308,6 +311,8 @@ impl InvoiceContract {
         merchant.require_auth();
         require_not_paused(&env)?;
         require_positive_amount(new_amount_usdc, new_gross_usdc)?;
+        // #706: cap the late fee (gross − amount) at MAX_LATE_FEE_BPS of amount
+        require_late_fee_within_cap(new_amount_usdc, new_gross_usdc)?;
         require_usdc_precision(new_amount_usdc, new_gross_usdc)?;
         if new_expires_in_seconds == 0 {
             return Err(InvoiceError::ZeroDuration);
