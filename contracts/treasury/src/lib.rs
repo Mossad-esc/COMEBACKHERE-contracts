@@ -134,5 +134,14 @@ pub(crate) fn write_settlement(env: &Env, id: u64, settlement: &Settlement) {
     }
 }
 
+/// Clears any hold-related storage for `id` (#745). Called from every terminal
+/// settlement transition (execute, cancel, expire, force-cancel) so a held
+/// settlement never leaves `HoldExpiry` / `HoldReason` entries behind once it
+/// is no longer live. Idempotent: safe to call when no hold was ever set.
+pub(crate) fn clear_hold_state(env: &Env, id: u64) {
+    env.storage().persistent().remove(&DataKey::HoldExpiry(id));
+    env.storage().persistent().remove(&DataKey::HoldReason(id));
+}
+
 #[cfg(test)]
 extern crate std;
