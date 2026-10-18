@@ -13,9 +13,13 @@ mod admin;
 mod deposits;
 mod disputes;
 mod holds;
-mod settlements;
+mod settlement_approvals;
+mod settlement_execution;
+mod settlement_proposals;
+mod settlement_queries;
 mod signers;
 mod timelock;
+mod tokens;
 
 #[contract]
 pub struct TreasuryContract;
