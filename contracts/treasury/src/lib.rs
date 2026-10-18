@@ -81,6 +81,9 @@ impl TreasuryContract {
 /// Maximum number of tokens allowed in the allowlist to prevent unbounded storage growth.
 pub(crate) const MAX_ALLOWED_TOKENS: u32 = 20;
 
+/// Default TTL (in ledgers) for a deposit reference id before it can be reused (#747).
+pub(crate) const DEPOSIT_REF_TTL_LEDGERS: u32 = 30 * 24 * 60 * 60 / 5;
+
 pub(crate) fn require_admin(env: &Env, admin: &Address) {
     admin.require_auth();
     // An uninitialized contract has no admin, so it fails closed as Unauthorized.
@@ -145,6 +148,25 @@ pub(crate) fn write_settlement(env: &Env, id: u64, settlement: &Settlement) {
 pub(crate) fn clear_hold_state(env: &Env, id: u64) {
     env.storage().persistent().remove(&DataKey::HoldExpiry(id));
     env.storage().persistent().remove(&DataKey::HoldReason(id));
+}
+
+/// Rejects a deposit whose reference id was already seen within the TTL window
+/// (#747). Records `ref_id` with a TTL so storage stays bounded and the id can
+/// be reused once the entry expires. Returns `Err(TreasuryError::DuplicateReferenceId)`
+/// on a duplicate.
+pub(crate) fn check_and_record_deposit_ref(
+    env: &Env,
+    ref_id: &Symbol,
+) -> Result<(), TreasuryError> {
+    let key = DataKey::DepositRef(ref_id.clone());
+    if env.storage().persistent().has(&key) {
+        return Err(TreasuryError::DuplicateReferenceId);
+    }
+    env.storage().persistent().set(&key, &true);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, DEPOSIT_REF_TTL_LEDGERS, DEPOSIT_REF_TTL_LEDGERS);
+    Ok(())
 }
 
 #[cfg(test)]
