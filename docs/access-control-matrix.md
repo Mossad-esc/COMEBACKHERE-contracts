@@ -82,8 +82,10 @@ Source: `src/lib.rs`, `src/deposits.rs`, `src/settlements.rs`, `src/disputes.rs`
 | `partially_execute_settlement` | `require_authorized_signer(&env, &signer)` | Authorized signer |
 | `cancel_settlement` | `require_authorized_signer(&env, &signer)` | Authorized signer |
 | `batch_cancel_settlements` | `require_admin(&env, &admin)` | Admin-only |
+| `force_cancel_settlement` | `require_admin(&env, &admin)` | Admin-only |
 | `get_pending_settlements` | none | Permissionless (read-only) |
 | `get_pending_settlements_page` | none | Permissionless (read-only) |
+| `get_pending_metrics` | none | Permissionless (read-only) |
 | `get_settlement` | none | Permissionless (read-only) |
 | `expire_settlement` | `require_admin(&env, &admin)` | Admin-only |
 | `update_merchant_payout_address` | `merchant.require_auth()` | Self-auth (role) |
@@ -106,6 +108,13 @@ Source: `src/lib.rs`, `src/deposits.rs`, `src/settlements.rs`, `src/disputes.rs`
 | `propose_signer_rotation` | `require_authorized_signer(&env, &proposer)` | Authorized signer |
 | `approve_signer_rotation` | `require_authorized_signer(&env, &approver)` | Authorized signer |
 | `cancel_rotation` | `require_admin(&env, &admin)` | Admin-only |
+| `set_withdrawal_limit` | `require_admin(&env, &admin)` | Admin-only |
+| `get_withdrawal_limit` | none | Permissionless (read-only) |
+| `resolve_dispute_split` | `require_admin(&env, &admin)` | Admin-only |
+| `propose_signer_change` | `require_admin(&env, &admin)` | Admin-only |
+| `execute_signer_change` | `require_admin(&env, &admin)` | Admin-only |
+| `cancel_signer_change` | `require_admin(&env, &admin)` | Admin-only |
+| `get_signer_change` | none | Permissionless (read-only) |
 
 ## `contracts/compliance`
 
@@ -124,15 +133,16 @@ entrypoint calls them.
 | `allow_address` | `Self::require_admin(&env, &admin)?` + `require_not_paused` | Admin-only |
 | `allow_address_with_tier` | `Self::require_admin(&env, &admin)?` + `require_not_paused` | Admin-only |
 | `get_address_tier` | none | Permissionless (read-only) |
-| `bulk_block_addresses` | `Self::require_admin(&env, &admin)?` — **no** `require_not_paused` call | Admin-only (see discrepancy below) |
-| `block_address` | `Self::require_admin(&env, &admin)?` — no pause check (documented: "permitted while paused") | Admin-only |
-| `block_address_until` | `Self::require_admin(&env, &admin)?` — no pause check | Admin-only |
+| `bulk_block_addresses` | `Self::require_admin(&env, &admin)?` — **no** `require_not_paused` call. Records the admin as each block's placer (#604). | Admin-only (see discrepancy below) |
+| `block_address` | `Self::require_admin_or_operator(&env, &caller)?` — no pause check (documented: "permitted while paused"). Records the caller in `DataKey::BlockedBy` (#604). | Admin or operator |
+| `block_address_until` | `Self::require_admin_or_operator(&env, &caller)?` — no pause check. Records the caller in `DataKey::BlockedBy` (#604). | Admin or operator |
 | `get_block_reason` | none | Permissionless (read-only) |
+| `get_block_placer` | none | Permissionless (read-only) |
 | `get_schema_version` | none | Permissionless (read-only) |
 | `allow_address_until` | `Self::require_admin(&env, &admin)?` + `require_not_paused` | Admin-only |
 | `transfer_admin` | `Self::require_admin(&env, &admin)?` | Admin-only |
 | `accept_admin` | `new_admin.require_auth()`; checked against stored `PendingAdmin` | Self-auth (role) |
-| `clear_address` | `Self::require_admin(&env, &admin)?` — no pause check (documented: "permitted while paused") | Admin-only |
+| `clear_address` | `Self::require_admin_or_operator(&env, &caller)?` — no pause check (documented: "permitted while paused"). An operator caller must additionally pass `require_operator_placed_block`, which refuses unless `DataKey::BlockedBy[address] == caller`; an admin caller clears any block (#604). | Admin, or operator for an operator-placed block only |
 | `revoke_allow` | `Self::require_admin(&env, &admin)?` + `require_not_paused` | Admin-only |
 | `pause` | `Self::require_admin(&env, &admin)?` | Admin-only |
 | `unpause` | `Self::require_admin(&env, &admin)?` | Admin-only |
@@ -150,6 +160,10 @@ Source: `src/lib.rs`.
 | Entrypoint | Auth check in source | Category |
 |---|---|---|
 | `execute_with_compliance` | **none directly in this function.** It calls `Compliance::is_allowed` (no auth required by that call) and, if it passes, `Treasury::execute_settlement` using `env.current_contract_address()` as the signer. Soroban auto-authorizes a contract's own outgoing calls, and `Treasury::execute_settlement`'s `require_authorized_signer` check is satisfied purely because this contract's address was pre-registered as a treasury signer via `set_signer`. | **Permissionless (mutating)** — see discrepancy below |
+| `execute_with_compliance_batch` | none directly; loops through the same compliance and treasury call path as `execute_with_compliance` for each settlement ID. | **Permissionless (mutating)** — same invariant as above |
+| `initialize` | `admin.require_auth()` on the `admin` parameter, then stores it along with the pinned compliance/treasury IDs. Guarded against re-entry by an `AlreadyInitialized` panic when a compliance ID is already stored. | **Self-auth (role)** — one-shot; the caller must be the admin it installs |
+| `transfer_admin` | `require_admin(...)`: the `admin` parameter must authenticate *and* match the stored `DataKey::Admin`. Nomination only — the role does not move until the nominee accepts. | **Admin-only** |
+| `accept_admin` | `new_admin.require_auth()` on the `new_admin` parameter, plus an in-body check that it matches the stored `DataKey::PendingAdmin`. Returns `Unauthorized` on a mismatch and `NoPendingAdmin` when nothing is outstanding. | **Self-auth (role)** |
 
 ## Discrepancies found
 

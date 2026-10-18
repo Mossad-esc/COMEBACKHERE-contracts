@@ -4,6 +4,9 @@ version = "1.0.0"
 edition.workspace = true
 license.workspace = true
 publish = false
+description = "COMEBACKHERE settlement workflow orchestration contract"
+keywords = ["soroban", "stellar", "settlement"]
+categories = ["cryptography::cryptocurrencies"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -25,3 +28,4 @@ multisig = { package = "comebackhere-multisig", path = "../../crates/multisig" }
 soroban-sdk = { workspace = true, features = ["testutils"] }
 compliance = { package = "comebackhere-compliance", path = "../compliance" }
 treasury = { package = "comebackhere-treasury", path = "../treasury" }
+comebackhere-tests = { path = "../../tests" }

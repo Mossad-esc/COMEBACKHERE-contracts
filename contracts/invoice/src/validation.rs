@@ -18,8 +18,9 @@ pub fn require_not_paused(env: &Env) -> Result<(), InvoiceError> {
 
 pub fn require_admin(env: &Env, admin: &Address) -> Result<(), InvoiceError> {
     admin.require_auth();
-    let stored: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
-    if stored != *admin {
+    // An uninitialized contract has no admin, so it fails closed as Unauthorized.
+    let stored: Option<Address> = env.storage().instance().get(&DataKey::Admin);
+    if stored.as_ref() != Some(admin) {
         return Err(InvoiceError::Unauthorized);
     }
     Ok(())
