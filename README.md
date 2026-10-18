@@ -205,3 +205,8 @@ Before submitting a pull request, make sure to:
 # License
 
 This project is licensed under the **MIT License**.
+
+## Handsoff notes
+
+<!-- handsoff-issue-760 -->
+- #760: Emit event on `set_blocklist_root`
