@@ -25,6 +25,7 @@ pub use refund::{
     calculate_net_refund, refund_recipient, transfer_net_refund, verify_payment_state, NetRefund,
     BPS_DENOMINATOR, MAX_REFUND_FEE_BPS, REFUND_NETWORK_FEE,
 };
+pub use validation::require_valid_discount;
 
 use soroban_sdk::{contract, Env, Vec};
 

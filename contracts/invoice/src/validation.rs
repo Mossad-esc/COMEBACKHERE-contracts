@@ -69,3 +69,25 @@ pub fn require_valid_payment_link_hash(hash: &MaybeBytes) -> Result<(), InvoiceE
     }
     Ok(())
 }
+
+/// Validate a discount against the invoice amount and expiry.
+///
+/// Two invariants must hold for a discount to be economically sound:
+/// - `discount_amount` must be strictly less than `amount_usdc` so that the
+///   discounted price stays positive.
+/// - `discount_deadline` must be ≤ `expires_at` so there exists a time window
+///   in which the payer can claim the discount before the invoice expires.
+pub fn require_valid_discount(
+    discount_amount: i128,
+    amount_usdc: i128,
+    discount_deadline: u64,
+    expires_at: u64,
+) -> Result<(), InvoiceError> {
+    if discount_amount >= amount_usdc {
+        return Err(InvoiceError::DiscountExceedsAmount);
+    }
+    if discount_deadline > expires_at {
+        return Err(InvoiceError::DiscountDeadlineAfterExpiry);
+    }
+    Ok(())
+}

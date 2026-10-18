@@ -52,5 +52,11 @@ declare_contract_error! {
         // Appended for #71: refund fee arithmetic (`gross_amount * fee_bps`)
         // overflowed, so the net payout cannot be computed.
         ArithmeticOverflow = 28,
+        // Appended for #708: a discount amount that is larger than the invoice
+        // amount, which would make the effective price negative or zero.
+        DiscountExceedsAmount = 29,
+        // Appended for #708: a discount early-pay deadline that falls after the
+        // invoice expiry, making it impossible to honour the discount window.
+        DiscountDeadlineAfterExpiry = 30,
     }
 }
