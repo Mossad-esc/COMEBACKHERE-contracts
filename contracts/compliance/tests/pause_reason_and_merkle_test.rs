@@ -178,3 +178,44 @@ fn merkle_proofs_reject_wrong_order() {
     // Sanity: the correctly ordered proof still verifies.
     assert!(client.is_blocked_with_proof(&a, &Vec::from_array(&env, [lb.clone(), cd.clone()])));
 }
+
+/// Proofs longer than the 32-level cap must be rejected outright, even if
+/// the leading siblings would otherwise form a valid path. This bounds the
+/// budget a caller can burn via `is_blocked_with_proof`.
+#[test]
+fn merkle_proofs_reject_oversized_proof() {
+    let (env, admin, client) = setup();
+    let (a, b, c, d) = (
+        Address::generate(&env),
+        Address::generate(&env),
+        Address::generate(&env),
+        Address::generate(&env),
+    );
+    let (la, lb, lc, ld) = (
+        leaf(&env, &a),
+        leaf(&env, &b),
+        leaf(&env, &c),
+        leaf(&env, &d),
+    );
+    let (ab, cd) = (node(&env, &la, &lb), node(&env, &lc, &ld));
+    let root = node(&env, &ab, &cd);
+    client.set_blocklist_root(&admin, &root);
+
+    // A valid 2-level proof padded with extra siblings exceeds the cap.
+    let mut oversized = Vec::from_array(&env, [lb.clone(), cd.clone()]);
+    for _ in 0..31 {
+        oversized.push_back(la.clone());
+    }
+    assert!(oversized.len() > 32);
+    assert!(!client.is_blocked_with_proof(&a, &oversized));
+
+    // Exactly at the cap is still accepted (and verifies here).
+    let mut at_cap = Vec::from_array(&env, [lb.clone(), cd.clone()]);
+    for _ in 0..30 {
+        at_cap.push_back(la.clone());
+    }
+    assert_eq!(at_cap.len(), 32);
+    // Padding changes the computed root, so this must not verify, but it
+    // must not be rejected purely for length either.
+    assert!(!client.is_blocked_with_proof(&a, &at_cap));
+}
