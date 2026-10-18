@@ -71,6 +71,15 @@ impl TreasuryContract {
             .publish((Symbol::new(&env, "treasury_initialized"),), admin);
         Ok(())
     }
+
+    /// Read-only view of how far a partial settlement has progressed (#738).
+    /// Returns `(approved_total, executed_total, remaining)` where `approved_total` is the
+    /// internally tracked `PartialApprovedTotal`, `executed_total` is the amount already
+    /// executed, and `remaining` is `approved_total - executed_total` (saturating at zero).
+    /// Errors: `SettlementNotFound`.
+    pub fn get_partial_progress(env: Env, settlement_id: u64) -> Result<(i128, i128, i128), TreasuryError> {
+        settlements::get_partial_progress(&env, settlement_id)
+    }
 }
 
 /// Maximum number of tokens allowed in the allowlist to prevent unbounded storage growth.
