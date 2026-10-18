@@ -3,40 +3,208 @@
   "version": "1.0.0",
   "functions": [
     {
+      "name": "initialize",
+      "inputs": ["admin"],
+      "outputs": ["result"],
+      "description": "Initializes the invoice contract with an admin address"
+    },
+    {
       "name": "create_invoice",
-      "inputs": ["payer_id", "payee_id", "amount", "currency", "due_date"],
+      "inputs": ["merchant", "amount_usdc", "gross_usdc", "expires_in_seconds", "metadata_hash", "payment_link_hash", "merchant_nonce", "token_address"],
       "outputs": ["invoice_id"],
       "description": "Creates a new invoice"
     },
     {
+      "name": "batch_create_invoice",
+      "inputs": ["merchant", "params"],
+      "outputs": ["invoice_ids"],
+      "description": "Creates multiple invoices atomically"
+    },
+    {
+      "name": "mark_paid",
+      "inputs": ["admin", "id", "payer", "provided_metadata_hash", "payment_token"],
+      "outputs": ["result"],
+      "description": "Marks an invoice as paid"
+    },
+    {
       "name": "get_invoice",
-      "inputs": ["invoice_id"],
+      "inputs": ["id"],
       "outputs": ["invoice"],
       "description": "Retrieves an invoice by ID"
     },
     {
-      "name": "update_invoice",
-      "inputs": ["invoice_id", "updated_fields"],
-      "outputs": ["invoice"],
-      "description": "Updates an existing invoice"
+      "name": "get_invoice_status",
+      "inputs": ["id"],
+      "outputs": ["status"],
+      "description": "Returns the status of an invoice"
+    },
+    {
+      "name": "batch_get_invoice_status",
+      "inputs": ["ids"],
+      "outputs": ["statuses"],
+      "description": "Returns the status of multiple invoices"
+    },
+    {
+      "name": "get_invoices_page",
+      "inputs": ["start_id", "limit"],
+      "outputs": ["invoices"],
+      "description": "Returns a page of invoices"
     },
     {
       "name": "cancel_invoice",
-      "inputs": ["invoice_id"],
+      "inputs": ["caller", "id"],
       "outputs": ["result"],
-      "description": "Cancels an invoice"
+      "description": "Cancels a pending invoice"
     },
     {
-      "name": "generate_payment_plan",
-      "inputs": ["invoice_id"],
-      "outputs": ["payment_plan"],
-      "description": "Generates a payment plan for an invoice"
+      "name": "amend_invoice",
+      "inputs": ["merchant", "id", "new_amount_usdc", "new_gross_usdc", "new_expires_in_seconds"],
+      "outputs": ["result"],
+      "description": "Amends a pending invoice's amount fields"
     },
     {
-      "name": "apply_discount",
-      "inputs": ["invoice_id", "discount_amount", "discount_type"],
-      "outputs": ["invoice"],
-      "description": "Applies a discount to an invoice"
+      "name": "request_refund",
+      "inputs": ["payer", "id"],
+      "outputs": ["result"],
+      "description": "Requests a refund for a paid invoice"
+    },
+    {
+      "name": "approve_refund",
+      "inputs": ["admin", "id"],
+      "outputs": ["result"],
+      "description": "Approves a refund request"
+    },
+    {
+      "name": "reject_refund",
+      "inputs": ["admin", "id"],
+      "outputs": ["result"],
+      "description": "Rejects a refund request"
+    },
+    {
+      "name": "release_escrow",
+      "inputs": ["admin", "id"],
+      "outputs": ["result"],
+      "description": "Releases escrow for a paid invoice"
+    },
+    {
+      "name": "batch_expire",
+      "inputs": ["admin", "ids"],
+      "outputs": ["expired_count"],
+      "description": "Expires pending invoices whose expiry has passed"
+    },
+    {
+      "name": "pause",
+      "inputs": ["admin"],
+      "outputs": ["result"],
+      "description": "Pauses the contract"
+    },
+    {
+      "name": "unpause",
+      "inputs": ["admin"],
+      "outputs": ["result"],
+      "description": "Unpauses the contract"
+    },
+    {
+      "name": "set_grace_window",
+      "inputs": ["admin", "seconds"],
+      "outputs": ["result"],
+      "description": "Sets the grace window for payment validity"
+    },
+    {
+      "name": "get_grace_window",
+      "inputs": [],
+      "outputs": ["seconds"],
+      "description": "Returns the current grace window"
+    },
+    {
+      "name": "accept_admin",
+      "inputs": ["new_admin"],
+      "outputs": ["result"],
+      "description": "Completes a two-step admin transfer"
+    },
+    {
+      "name": "extend_expiry",
+      "inputs": ["admin", "id", "additional_seconds"],
+      "outputs": ["result"],
+      "description": "Extends the expiry of a pending invoice"
+    },
+    {
+      "name": "get_invoice_count",
+      "inputs": [],
+      "outputs": ["count"],
+      "description": "Returns the total number of invoices created"
+    },
+    {
+      "name": "get_invoices_by_merchant",
+      "inputs": ["merchant", "start", "limit"],
+      "outputs": ["invoice_ids"],
+      "description": "Returns a page of invoice IDs for a merchant"
+    },
+    {
+      "name": "get_pending_ids",
+      "inputs": [],
+      "outputs": ["ids"],
+      "description": "Returns all pending invoice IDs"
+    },
+    {
+      "name": "transfer_admin",
+      "inputs": ["admin", "new_admin"],
+      "outputs": ["result"],
+      "description": "Initiates a two-step admin transfer"
+    },
+    {
+      "name": "set_refund_network_fee",
+      "inputs": ["admin", "fee"],
+      "outputs": ["result"],
+      "description": "Sets the refund network fee in stroops (admin only, bounded by MAX_REFUND_NETWORK_FEE)"
+    },
+    {
+      "name": "get_refund_network_fee",
+      "inputs": [],
+      "outputs": ["fee"],
+      "description": "Returns the current refund network fee in stroops"
+    },
+    {
+      "name": "create_template",
+      "inputs": ["merchant", "amount_usdc", "gross_usdc", "duration_seconds", "metadata_hash", "token_address"],
+      "outputs": ["template_id"],
+      "description": "Creates a reusable invoice template"
+    },
+    {
+      "name": "generate_from_template",
+      "inputs": ["merchant", "template_id", "merchant_nonce"],
+      "outputs": ["invoice_id"],
+      "description": "Generates a new invoice from an existing template"
+    },
+    {
+      "name": "disable_template",
+      "inputs": ["merchant", "template_id"],
+      "outputs": ["result"],
+      "description": "Disables an invoice template"
+    },
+    {
+      "name": "get_template",
+      "inputs": ["template_id"],
+      "outputs": ["template"],
+      "description": "Retrieves a template by ID"
+    },
+    {
+      "name": "get_template_count",
+      "inputs": [],
+      "outputs": ["count"],
+      "description": "Returns the total number of templates created"
+    },
+    {
+      "name": "get_templates_by_merchant",
+      "inputs": ["merchant", "start", "limit"],
+      "outputs": ["template_ids"],
+      "description": "Returns a page of template IDs for a merchant"
+    },
+    {
+      "name": "transfer_invoice",
+      "inputs": ["from", "id", "to"],
+      "outputs": ["result"],
+      "description": "Transfers payer ownership of a paid invoice to a new address"
     }
   ],
   "events": [
@@ -77,6 +245,117 @@
       "payload": {
         "invoice_id": "string",
         "reason": "string"
+      }
+    },
+    {
+      "name": "invoice_paid",
+      "payload": {
+        "invoice_id": "string",
+        "payer": "string",
+        "paid_at": "timestamp"
+      }
+    },
+    {
+      "name": "invoice_expired",
+      "payload": {
+        "invoice_id": "string",
+        "expires_at": "timestamp"
+      }
+    },
+    {
+      "name": "invoice_refund_requested",
+      "payload": {
+        "invoice_id": "string",
+        "payer": "string"
+      }
+    },
+    {
+      "name": "escrow_released",
+      "payload": {
+        "invoice_id": "string",
+        "merchant": "string",
+        "amount_usdc": "decimal",
+        "released_at": "timestamp"
+      }
+    },
+    {
+      "name": "invoice_amended",
+      "payload": {
+        "invoice_id": "string",
+        "old_amount_usdc": "decimal",
+        "new_amount_usdc": "decimal"
+      }
+    },
+    {
+      "name": "invoice_expiry_extended",
+      "payload": {
+        "invoice_id": "string",
+        "old_expires_at": "timestamp",
+        "new_expires_at": "timestamp"
+      }
+    },
+    {
+      "name": "contract_paused",
+      "payload": {
+        "admin": "string"
+      }
+    },
+    {
+      "name": "contract_unpaused",
+      "payload": {
+        "admin": "string"
+      }
+    },
+    {
+      "name": "refund_approved",
+      "payload": {
+        "invoice_id": "string"
+      }
+    },
+    {
+      "name": "refund_rejected",
+      "payload": {
+        "invoice_id": "string"
+      }
+    },
+    {
+      "name": "refund_network_fee_updated",
+      "payload": {
+        "old_fee": "decimal",
+        "new_fee": "decimal"
+      }
+    },
+    {
+      "name": "template_created",
+      "payload": {
+        "template_id": "string",
+        "merchant": "string",
+        "amount_usdc": "decimal",
+        "gross_usdc": "decimal",
+        "duration_seconds": "integer"
+      }
+    },
+    {
+      "name": "template_generated",
+      "payload": {
+        "template_id": "string",
+        "invoice_id": "string",
+        "merchant": "string"
+      }
+    },
+    {
+      "name": "template_disabled",
+      "payload": {
+        "template_id": "string",
+        "merchant": "string"
+      }
+    },
+    {
+      "name": "invoice_transferred",
+      "payload": {
+        "invoice_id": "string",
+        "from": "string",
+        "to": "string"
       }
     }
   ]

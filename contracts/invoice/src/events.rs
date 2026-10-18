@@ -117,6 +117,110 @@ pub fn invoice_expiry_extended(env: &Env, event: &InvoiceExpiryExtendedEvent) {
     );
 }
 
+/// Emitted when the admin updates the refund network fee.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RefundNetworkFeeUpdatedEvent {
+    pub old_fee: i128,
+    pub new_fee: i128,
+}
+
+pub fn refund_network_fee_updated(env: &Env, old_fee: i128, new_fee: i128) {
+    env.events().publish(
+        (Symbol::new(env, "refund_network_fee_updated"),),
+        RefundNetworkFeeUpdatedEvent { old_fee, new_fee },
+    );
+}
+
+/// Emitted when a new invoice template is created.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TemplateCreatedEvent {
+    pub id: u64,
+    pub merchant: Address,
+    pub amount_usdc: i128,
+    pub gross_usdc: i128,
+    pub duration_seconds: u64,
+}
+
+pub fn template_created(
+    env: &Env,
+    id: u64,
+    merchant: &Address,
+    amount_usdc: i128,
+    gross_usdc: i128,
+    duration_seconds: u64,
+) {
+    env.events().publish(
+        (Symbol::new(env, "template_created"), id),
+        TemplateCreatedEvent {
+            id,
+            merchant: merchant.clone(),
+            amount_usdc,
+            gross_usdc,
+            duration_seconds,
+        },
+    );
+}
+
+/// Emitted when an invoice is generated from a template.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TemplateGeneratedEvent {
+    pub template_id: u64,
+    pub invoice_id: u64,
+    pub merchant: Address,
+}
+
+pub fn template_generated(env: &Env, template_id: u64, invoice_id: u64, merchant: &Address) {
+    env.events().publish(
+        (Symbol::new(env, "template_generated"), template_id),
+        TemplateGeneratedEvent {
+            template_id,
+            invoice_id,
+            merchant: merchant.clone(),
+        },
+    );
+}
+
+/// Emitted when a template is disabled by the merchant.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TemplateDisabledEvent {
+    pub id: u64,
+    pub merchant: Address,
+}
+
+pub fn template_disabled(env: &Env, id: u64, merchant: &Address) {
+    env.events().publish(
+        (Symbol::new(env, "template_disabled"), id),
+        TemplateDisabledEvent {
+            id,
+            merchant: merchant.clone(),
+        },
+    );
+}
+
+/// Emitted when an invoice's ownership is transferred to a new payer.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InvoiceTransferredEvent {
+    pub id: u64,
+    pub from: Address,
+    pub to: Address,
+}
+
+pub fn invoice_transferred(env: &Env, id: u64, from: &Address, to: &Address) {
+    env.events().publish(
+        (Symbol::new(env, "invoice_transferred"), id),
+        InvoiceTransferredEvent {
+            id,
+            from: from.clone(),
+            to: to.clone(),
+        },
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::{invoice_expiry_extended, InvoiceExpiryExtendedEvent};

@@ -814,6 +814,18 @@ fn test_abi_snapshot_matches_contract() {
         "get_invoices_by_merchant",
         "get_pending_ids",
         "transfer_admin",
+        // #701: admin-configurable refund network fee
+        "set_refund_network_fee",
+        "get_refund_network_fee",
+        // #694: invoice template entrypoints
+        "create_template",
+        "generate_from_template",
+        "disable_template",
+        "get_template",
+        "get_template_count",
+        "get_templates_by_merchant",
+        // #694: invoice ownership transfer
+        "transfer_invoice",
     ]
     .iter()
     .copied()
@@ -832,6 +844,14 @@ fn test_abi_snapshot_matches_contract() {
         "contract_unpaused",
         "refund_approved",
         "refund_rejected",
+        // #701: refund network fee change event
+        "refund_network_fee_updated",
+        // #694: template lifecycle events
+        "template_created",
+        "template_generated",
+        "template_disabled",
+        // #694: invoice transfer event
+        "invoice_transferred",
     ]
     .iter()
     .copied()

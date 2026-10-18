@@ -3,7 +3,7 @@ use crate::events::InvoiceExpiryExtendedEvent;
 use crate::validation::require_admin;
 use crate::{
     DataKey, Invoice, InvoiceContract, InvoiceContractArgs, InvoiceContractClient, InvoiceError,
-    InvoiceStatus,
+    InvoiceStatus, DEFAULT_REFUND_NETWORK_FEE, MAX_REFUND_NETWORK_FEE,
 };
 use soroban_sdk::{contractimpl, Address, Env};
 
@@ -119,5 +119,36 @@ impl InvoiceContract {
             },
         );
         Ok(())
+    }
+
+    // --- #701: admin-configurable refund network fee ---
+
+    /// Set the refund network fee (in stroops) deducted from refund payouts.
+    /// Admin-only. Must not exceed MAX_REFUND_NETWORK_FEE.
+    /// Emits a `refund_network_fee_updated` event on success.
+    pub fn set_refund_network_fee(env: Env, admin: Address, fee: i128) -> Result<(), InvoiceError> {
+        require_admin(&env, &admin)?;
+        if fee < 0 || fee > MAX_REFUND_NETWORK_FEE {
+            return Err(InvoiceError::InvalidAmount);
+        }
+        let old_fee: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::RefundNetworkFee)
+            .unwrap_or(DEFAULT_REFUND_NETWORK_FEE);
+        env.storage()
+            .instance()
+            .set(&DataKey::RefundNetworkFee, &fee);
+        events::refund_network_fee_updated(&env, old_fee, fee);
+        Ok(())
+    }
+
+    /// Return the current refund network fee in stroops.
+    /// Defaults to DEFAULT_REFUND_NETWORK_FEE (100) when not explicitly configured.
+    pub fn get_refund_network_fee(env: Env) -> i128 {
+        env.storage()
+            .instance()
+            .get(&DataKey::RefundNetworkFee)
+            .unwrap_or(DEFAULT_REFUND_NETWORK_FEE)
     }
 }

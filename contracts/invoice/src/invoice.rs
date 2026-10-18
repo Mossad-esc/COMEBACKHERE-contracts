@@ -15,6 +15,14 @@ pub const MAX_BATCH_EXPIRE: u32 = 100;
 /// Maximum bytes accepted for optional invoice hash fields.
 pub const MAX_HASH_BYTES: u32 = 64;
 
+/// Default refund network fee in stroops (100 stroops ≈ 0.00001 USDC).
+/// Used when no admin-configured value is present.
+pub const DEFAULT_REFUND_NETWORK_FEE: i128 = 100;
+
+/// Hard upper bound for the refund network fee: 10 USDC in stroops.
+/// Prevents misconfiguration from eating an entire refund amount.
+pub const MAX_REFUND_NETWORK_FEE: i128 = 100_000_000;
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum InvoiceStatus {
@@ -87,6 +95,21 @@ pub struct StatusTransition {
     pub timestamp: u64,
 }
 
+/// A reusable invoice template that can generate multiple invoices with shared fields.
+/// Templates enable merchants to pre-configure recurring billing setups.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InvoiceTemplate {
+    pub id: u64,
+    pub merchant: Address,
+    pub amount_usdc: i128,
+    pub gross_usdc: i128,
+    pub duration_seconds: u64,
+    pub metadata_hash: MaybeBytes,
+    pub token_address: MaybeAddress,
+    pub enabled: bool,
+}
+
 #[contracttype]
 #[derive(Clone)]
 pub enum DataKey {
@@ -111,4 +134,14 @@ pub enum DataKey {
     CreationCooldown,
     /// Timestamp of the last successful create_invoice call for a given merchant.
     LastCreatedAt(Address),
+    /// Admin-configurable refund network fee in stroops. Defaults to DEFAULT_REFUND_NETWORK_FEE.
+    RefundNetworkFee,
+    /// Count of invoice templates created across all merchants.
+    TemplateCount,
+    /// Stored invoice template by template ID.
+    Template(u64),
+    /// Count of templates created by a specific merchant.
+    MerchantTemplateCount(Address),
+    /// Secondary index: (merchant address, zero-based position) → template ID.
+    MerchantTemplateIndex(Address, u64),
 }
