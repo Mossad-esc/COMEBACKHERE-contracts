@@ -12,6 +12,11 @@ const SETTLEMENT_TTL: u64 = 7 * 24 * 60 * 60;
 /// the batch caps used elsewhere in the workspace (see #8/#21).
 const MAX_BATCH_SIZE: u32 = 50;
 
+/// Maximum number of payout address history entries retained per merchant (#579).
+/// Older entries are dropped (FIFO) once this cap is reached to prevent unbounded
+/// storage growth while still keeping a useful audit trail.
+const MAX_PAYOUT_HISTORY: u32 = 10;
+
 #[contractimpl]
 impl TreasuryContract {
     /// Proposes a new settlement of `amount` tokens payable to `merchant_address`.
@@ -584,6 +589,9 @@ impl TreasuryContract {
     }
 
     /// Sets or updates the payout address for `merchant` (merchant-only, not paused).
+    /// Appends `(new_payout_address, current_timestamp)` to a bounded history stored
+    /// under `DataKey::PayoutAddressHistory(merchant)`, capped at `MAX_PAYOUT_HISTORY`
+    /// entries. The oldest entry is dropped when the cap is reached (#579).
     /// Emits: `merchant_payout_updated`.
     pub fn update_merchant_payout_address(
         env: Env,
@@ -596,6 +604,24 @@ impl TreasuryContract {
             &DataKey::MerchantPayoutAddress(merchant.clone()),
             &new_payout_address,
         );
+        // Append the change to the bounded payout history for audit (#579).
+        let history_key = DataKey::PayoutAddressHistory(merchant.clone());
+        let mut history: Vec<(Address, u64)> = env
+            .storage()
+            .persistent()
+            .get(&history_key)
+            .unwrap_or_else(|| Vec::new(&env));
+        // Drop the oldest entry once the cap is reached.
+        if history.len() >= MAX_PAYOUT_HISTORY {
+            let mut trimmed = Vec::new(&env);
+            let start = history.len() - MAX_PAYOUT_HISTORY + 1;
+            for i in start..history.len() {
+                trimmed.push_back(history.get(i).unwrap());
+            }
+            history = trimmed;
+        }
+        history.push_back((new_payout_address.clone(), env.ledger().timestamp()));
+        env.storage().persistent().set(&history_key, &history);
         env.events().publish(
             (Symbol::new(&env, "merchant_payout_updated"), merchant),
             new_payout_address,
@@ -607,6 +633,16 @@ impl TreasuryContract {
         env.storage()
             .instance()
             .get(&DataKey::MerchantPayoutAddress(merchant))
+    }
+
+    /// Returns the bounded payout-address change history for `merchant` as a list of
+    /// `(address, timestamp)` pairs ordered oldest-first. Returns an empty list if no
+    /// history has been recorded yet. Capped at `MAX_PAYOUT_HISTORY` entries (#579).
+    pub fn get_payout_address_history(env: Env, merchant: Address) -> Vec<(Address, u64)> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::PayoutAddressHistory(merchant))
+            .unwrap_or_else(|| Vec::new(&env))
     }
 
     /// Adds `token` to the settlement token allowlist (admin-only). No-op if already present.
