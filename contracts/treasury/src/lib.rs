@@ -13,9 +13,13 @@ mod admin;
 mod deposits;
 mod disputes;
 mod holds;
-mod settlements;
+mod settlement_approvals;
+mod settlement_execution;
+mod settlement_proposals;
+mod settlement_queries;
 mod signers;
 mod timelock;
+mod tokens;
 
 #[contract]
 pub struct TreasuryContract;
@@ -132,6 +136,8 @@ pub(crate) const MAX_DISPUTE_MEMO_LEN: u32 = 256;
 /// Maximum length, in bytes, of a signer label accepted by `set_signer_label`.
 /// Bounds storage costs by rejecting unbounded caller-supplied strings (#740).
 pub(crate) const MAX_SIGNER_LABEL_LEN: u32 = 64;
+/// Default TTL (in ledgers) for a deposit reference id before it can be reused (#747).
+pub(crate) const DEPOSIT_REF_TTL_LEDGERS: u32 = 30 * 24 * 60 * 60 / 5;
 
 pub(crate) fn require_admin(env: &Env, admin: &Address) {
     admin.require_auth();
@@ -218,6 +224,34 @@ pub(crate) fn write_settlement(env: &Env, id: u64, settlement: &Settlement) {
             .instance()
             .set(&DataKey::PendingSettlementIndex, &updated);
     }
+}
+
+/// Clears any hold-related storage for `id` (#745). Called from every terminal
+/// settlement transition (execute, cancel, expire, force-cancel) so a held
+/// settlement never leaves `HoldExpiry` / `HoldReason` entries behind once it
+/// is no longer live. Idempotent: safe to call when no hold was ever set.
+pub(crate) fn clear_hold_state(env: &Env, id: u64) {
+    env.storage().persistent().remove(&DataKey::HoldExpiry(id));
+    env.storage().persistent().remove(&DataKey::HoldReason(id));
+}
+
+/// Rejects a deposit whose reference id was already seen within the TTL window
+/// (#747). Records `ref_id` with a TTL so storage stays bounded and the id can
+/// be reused once the entry expires. Returns `Err(TreasuryError::DuplicateReferenceId)`
+/// on a duplicate.
+pub(crate) fn check_and_record_deposit_ref(
+    env: &Env,
+    ref_id: &Symbol,
+) -> Result<(), TreasuryError> {
+    let key = DataKey::DepositRef(ref_id.clone());
+    if env.storage().persistent().has(&key) {
+        return Err(TreasuryError::DuplicateReferenceId);
+    }
+    env.storage().persistent().set(&key, &true);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, DEPOSIT_REF_TTL_LEDGERS, DEPOSIT_REF_TTL_LEDGERS);
+    Ok(())
 }
 
 #[cfg(test)]

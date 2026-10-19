@@ -4,13 +4,19 @@ use crate::{TreasuryContractArgs, TreasuryContractClient};
 use multisig::signer_weight;
 use soroban_sdk::{contractimpl, token, Address, Bytes, Env, Symbol, Vec};
 
+/// TTL (in ledgers) for which a deposit reference id is remembered for
+/// uniqueness enforcement. Roughly 30 days at 5s/ledger.
+const DEPOSIT_REFERENCE_TTL: u32 = 518_400;
+
 #[contractimpl]
 impl TreasuryContract {
     /// Deposits `amount` tokens from `from` into the treasury via `token_contract`.
     /// An optional `reference` string can be supplied for off-chain reconciliation;
     /// it is included in the `deposit` event so finance systems can match deposits
     /// to invoices or external transfers automatically.
-    /// Errors: `ContractPaused`, `InvalidAmount`.
+    /// Reference ids must be unique within `DEPOSIT_REFERENCE_TTL` ledgers; reusing
+    /// a still-live reference id is rejected with `DuplicateReference`.
+    /// Errors: `ContractPaused`, `InvalidAmount`, `DuplicateReference`.
     /// Emits: `deposit`.
     pub fn deposit(
         env: Env,
@@ -27,7 +33,9 @@ impl TreasuryContract {
     /// Deposits multiple `(token_contract, amount)` pairs from `from` into the treasury.
     /// An optional `reference` string is forwarded to every `deposit` event emitted
     /// by the batch, allowing the whole batch to be tagged with a single reconciliation id.
-    /// Errors: `ContractPaused`, `InvalidAmount`.
+    /// The reference id is recorded once for the batch; reusing a still-live reference
+    /// id is rejected with `DuplicateReference`.
+    /// Errors: `ContractPaused`, `InvalidAmount`, `DuplicateReference`.
     /// Emits: `deposit` for each deposited token.
     pub fn batch_deposit(
         env: Env,
@@ -37,8 +45,11 @@ impl TreasuryContract {
     ) -> Result<(), TreasuryError> {
         require_not_paused(&env);
         from.require_auth();
+        if let Some(ref_id) = reference.clone() {
+            record_deposit_reference(&env, &ref_id)?;
+        }
         for (token_contract, amount) in deposits.iter() {
-            deposit_one(&env, &from, &token_contract, amount, reference.clone())?;
+            deposit_one(&env, &from, &token_contract, amount, None)?;
         }
         Ok(())
     }

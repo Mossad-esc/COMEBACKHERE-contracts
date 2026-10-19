@@ -215,3 +215,5 @@ This project is licensed under the **MIT License**.
 - #752: Add `get_addresses_by_jurisdiction` paginated read
 <!-- handsoff-issue-760 -->
 - #760: Emit event on `set_blocklist_root`
+<!-- handsoff-issue-748 -->
+- #748: Split `contracts/compliance/src/lib.rs` (1,677 lines) into submodules
