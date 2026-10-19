@@ -51,6 +51,27 @@ impl TreasuryContract {
             .publish((Symbol::new(&env, "treasury_unpaused"),), admin);
     }
 
+    /// Returns the current multisig approval threshold.
+    pub fn get_threshold(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::Threshold)
+            .unwrap_or(0)
+    }
+
+    /// Returns whether the contract is currently paused.
+    pub fn is_paused(env: Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false)
+    }
+
+    /// Returns the current admin address.
+    pub fn get_admin(env: Env) -> Address {
+        env.storage().instance().get(&DataKey::Admin).unwrap()
+    }
+
     /// Configures the maximum amount withdrawable per rolling time window (admin-only).
     /// Applies to both `withdraw` (tracked per recipient `to`) and `withdraw_all` (tracked
     /// per `recipient`) — see `deposits.rs`. Passing `limit <= 0` disables the cap
