@@ -213,7 +213,18 @@ pub enum DataKey {
     /// Circuit-breaker flag — when `true`, both `execute_with_compliance*`
     /// entrypoints are rejected (#616).
     Paused,
+    /// Monotonically incrementing schema version written by `initialize` and
+    /// targeted by `migrate` (#779). Mirrors the same key in compliance so
+    /// future storage changes can be executed safely with a tested migration path.
+    SchemaVersion,
 }
+
+/// Storage schema version written by `initialize` and targeted by `migrate` (#779).
+///
+/// Version 1 is the first version of the settlement-workflow that tracks schema
+/// versioning. Future incompatible storage layout changes must bump this constant
+/// and add a migration path in `migrate`.
+pub const CURRENT_SCHEMA_VERSION: u32 = 1;
 
 /// Reference on-chain implementation of the `SettlementWorkflow` role described in
 /// `ARCHITECTURE.md`: gates `Treasury::execute_settlement` behind
@@ -250,6 +261,9 @@ impl SettlementWorkflowContract {
         env.storage()
             .instance()
             .set(&DataKey::TreasuryId, &treasury_id);
+        env.storage()
+            .instance()
+            .set(&DataKey::SchemaVersion, &CURRENT_SCHEMA_VERSION);
         env.events().publish(
             (Symbol::new(&env, "workflow_initialized"),),
             (admin, compliance_id, treasury_id),
