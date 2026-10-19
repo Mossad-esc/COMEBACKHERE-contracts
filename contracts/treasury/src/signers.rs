@@ -210,6 +210,129 @@ impl TreasuryContract {
                 return Err(TreasuryError::RotationProposalCooldown);
             }
         }
-        env.storage().instance().set(&cooldown_key
+        env.storage().instance().set(&cooldown_key, &now);
 
-/* … truncated 77 chars — edit only what you need near the top … */
+        let count: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::RotationCount)
+            .unwrap_or(0);
+        let id = count
+            .checked_add(1)
+            .ok_or(TreasuryError::ArithmeticOverflow)?;
+        let mut approvals = Vec::new(&env);
+        let mut weight = 0u32;
+        record_approval(&env, &mut approvals, &mut weight, &proposer);
+        // Snapshot old_signer's weight now, at proposal time, so a later
+        // set_signer/remove_signer racing against this proposal's execution
+        // cannot change what weight new_signer receives (see approve_signer_rotation).
+        let captured_old_weight = signer_weight(&env, &old_signer);
+        let proposal = SignerRotationProposal {
+            id,
+            old_signer,
+            new_signer,
+            approvals,
+            approval_weight: weight,
+            status: RotationStatus::Pending,
+            captured_old_weight,
+        };
+        env.storage()
+            .persistent()
+            .set(&DataKey::SignerRotation(id), &proposal);
+        env.storage().instance().set(&DataKey::RotationCount, &id);
+        env.events()
+            .publish((Symbol::new(&env, "rotation_proposed"), id), proposal);
+        Ok(id)
+    }
+
+    /// Approves a pending signer rotation; executes the swap when cumulative weight meets threshold.
+    /// Errors: `UnauthorizedSigner`, `RotationNotFound`, `RotationAlreadyExecuted`.
+    /// Emits: `rotation_approved`; additionally `rotation_executed` when threshold is met.
+    ///
+    /// The weight assigned to `new_signer` on execution is `old_signer`'s weight at
+    /// **proposal** time (`proposal.captured_old_weight`), not whatever weight
+    /// `old_signer` happens to have when the threshold is met. This is deliberate:
+    /// it prevents a `set_signer`/`remove_signer` call landing between proposal and
+    /// execution from silently changing the rotation's outcome.
+    pub fn approve_signer_rotation(
+        env: Env,
+        approver: Address,
+        rotation_id: u64,
+    ) -> Result<SignerRotationProposal, TreasuryError> {
+        require_authorized_signer(&env, &approver);
+        let mut proposal: SignerRotationProposal = env
+            .storage()
+            .persistent()
+            .get(&DataKey::SignerRotation(rotation_id))
+            .ok_or(TreasuryError::RotationNotFound)?;
+        if proposal.status != RotationStatus::Pending {
+            return Err(TreasuryError::RotationAlreadyExecuted);
+        }
+        record_approval(
+            &env,
+            &mut proposal.approvals,
+            &mut proposal.approval_weight,
+            &approver,
+        );
+        let threshold: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::Threshold)
+            .unwrap_or(1);
+        if meets_threshold(proposal.approval_weight, threshold) {
+            // Use the weight captured when the rotation was proposed, not
+            // old_signer's weight right now — old_signer may have been
+            // reweighted or removed by an unrelated transaction while this
+            // rotation was pending, and that must not change the outcome.
+            env.storage().instance().set(
+                &DataKey::Signer(proposal.new_signer.clone()),
+                &proposal.captured_old_weight,
+            );
+            env.storage()
+                .instance()
+                .set(&DataKey::Signer(proposal.old_signer.clone()), &0u32);
+            proposal.status = RotationStatus::Executed;
+            env.events().publish(
+                (Symbol::new(&env, "rotation_executed"), rotation_id),
+                proposal.clone(),
+            );
+        }
+        env.storage()
+            .persistent()
+            .set(&DataKey::SignerRotation(rotation_id), &proposal);
+        env.events().publish(
+            (Symbol::new(&env, "rotation_approved"), rotation_id),
+            proposal.clone(),
+        );
+        Ok(proposal)
+    }
+
+    /// Cancels a pending signer rotation proposal (admin-only).
+    /// Errors: `RotationNotFound`, `RotationAlreadyExecuted`.
+    /// Panics: `Unauthorized`.
+    /// Emits: `rotation_cancelled`.
+    pub fn cancel_rotation(
+        env: Env,
+        admin: Address,
+        rotation_id: u64,
+    ) -> Result<SignerRotationProposal, TreasuryError> {
+        require_admin(&env, &admin);
+        let mut proposal: SignerRotationProposal = env
+            .storage()
+            .persistent()
+            .get(&DataKey::SignerRotation(rotation_id))
+            .ok_or(TreasuryError::RotationNotFound)?;
+        if proposal.status != RotationStatus::Pending {
+            return Err(TreasuryError::RotationAlreadyExecuted);
+        }
+        proposal.status = RotationStatus::Cancelled;
+        env.storage()
+            .persistent()
+            .set(&DataKey::SignerRotation(rotation_id), &proposal);
+        env.events().publish(
+            (Symbol::new(&env, "rotation_cancelled"), rotation_id),
+            proposal.clone(),
+        );
+        Ok(proposal)
+    }
+}

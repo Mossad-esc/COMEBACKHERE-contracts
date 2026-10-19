@@ -203,6 +203,140 @@ impl TreasuryContract {
             .get(&DataKey::Paused)
             .unwrap_or(false);
         if !paused {
-            return Err(Treasu
+            return Err(TreasuryError::NotPaused);
+        }
 
-/* … truncated 4941 chars — edit only what you need near the top … */
+        // 2. Collect the full registered signer list (weight > 0).
+        let signer_list: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::SignerList)
+            .unwrap_or_else(|| Vec::new(&env));
+
+        // 3. Verify that every registered signer with weight > 0 is present in
+        //    `signers` and has authenticated.
+        for registered in signer_list.iter() {
+            let weight: u32 = signer_weight(&env, &registered);
+            if weight == 0 {
+                continue; // deactivated signer; skip
+            }
+            // The caller must supply this signer and obtain its auth.
+            if !signers.contains(&registered) {
+                soroban_sdk::panic_with_error!(&env, TreasuryError::UnauthorizedSigner);
+            }
+            // Require authentication from each signer.
+            registered.require_auth();
+        }
+
+        // 4. Transfer the full on-chain balance to the recovery address.
+        let treasury = env.current_contract_address();
+        let token_client = token::Client::new(&env, &token_contract);
+        let balance = token_client.balance(&treasury);
+        if balance > 0 {
+            token_client.transfer(&treasury, &recovery_address, &balance);
+        }
+
+        // 5. Emit a HIGH-SEVERITY event for monitoring and audit.
+        env.events().publish(
+            (Symbol::new(&env, "emergency_withdraw"),),
+            (recovery_address, balance),
+        );
+
+        Ok(())
+    }
+}
+
+fn deposit_one(
+    env: &Env,
+    from: &Address,
+    token_contract: &Address,
+    amount: i128,
+    reference: Option<Bytes>,
+) -> Result<(), TreasuryError> {
+    if amount <= 0 {
+        return Err(TreasuryError::InvalidAmount);
+    }
+    let treasury = env.current_contract_address();
+    let token_client = token::Client::new(env, token_contract);
+    token_client.transfer(from, &treasury, &amount);
+    let mut balance: i128 = env
+        .storage()
+        .persistent()
+        .get(&DataKey::Balance(from.clone(), token_contract.clone()))
+        .unwrap_or(0);
+    balance = balance
+        .checked_add(amount)
+        .ok_or(TreasuryError::ArithmeticOverflow)?;
+    env.storage().persistent().set(
+        &DataKey::Balance(from.clone(), token_contract.clone()),
+        &balance,
+    );
+    // Include the optional reference in the event data so off-chain systems can
+    // match deposits to invoices or external transfers without manual look-up.
+    env.events().publish(
+        (Symbol::new(env, "deposit"), from.clone()),
+        (amount, reference),
+    );
+    Ok(())
+}
+
+/// Enforces the admin-configured rolling-window withdrawal cap (see
+/// `set_withdrawal_limit` / `get_withdrawal_limit` in `lib.rs`). Tracked per
+/// `addr` so `withdraw` (keyed on the recipient `to`) and `withdraw_all` (keyed
+/// on `recipient`) each accumulate against their own window.
+///
+/// No-op when the limit is unset or `<= 0` (the default: uncapped). When a
+/// limit is configured, the first withdrawal of a window records the window
+/// start; subsequent withdrawals inside `WithdrawalWindowSecs` accumulate, and
+/// a withdrawal that would push the window total past the limit panics with
+/// `WithdrawalLimitExceeded` before any transfer happens.
+pub(crate) fn enforce_withdrawal_limit(env: &Env, addr: &Address, amount: i128) {
+    let limit: i128 = env
+        .storage()
+        .instance()
+        .get(&DataKey::WithdrawalLimitPerWindow)
+        .unwrap_or(0);
+    if limit <= 0 {
+        return; // uncapped (default)
+    }
+    let window_secs: u64 = env
+        .storage()
+        .instance()
+        .get(&DataKey::WithdrawalWindowSecs)
+        .unwrap_or(0);
+    let now = env.ledger().timestamp();
+    let window_start: u64 = env
+        .storage()
+        .instance()
+        .get(&DataKey::WithdrawalWindowStart(addr.clone()))
+        .unwrap_or(0);
+    let used: i128 = env
+        .storage()
+        .instance()
+        .get(&DataKey::WithdrawnInWindow(addr.clone()))
+        .unwrap_or(0);
+
+    // Start a fresh window if the configured window has elapsed since it began
+    // (or if no window duration is configured, so every call is its own window).
+    let window_elapsed = window_secs == 0 || now.saturating_sub(window_start) >= window_secs;
+    let (current_start, prior_used) = if window_elapsed {
+        (now, 0i128)
+    } else {
+        (window_start, used)
+    };
+
+    let new_used = prior_used
+        .checked_add(amount)
+        .unwrap_or_else(|| soroban_sdk::panic_with_error!(env, TreasuryError::ArithmeticOverflow));
+    if new_used > limit {
+        soroban_sdk::panic_with_error!(env, TreasuryError::WithdrawalLimitExceeded);
+    }
+
+    env.storage().instance().set(
+        &DataKey::WithdrawalWindowStart(addr.clone()),
+        &current_start,
+    );
+    env.storage()
+        .instance()
+        .set(&DataKey::WithdrawnInWindow(addr.clone()), &new_used);
+}
