@@ -66,6 +66,11 @@ pub enum SimulationResult {
 pub trait PausableInterface {
     fn pause(env: Env, admin: Address);
     fn unpause(env: Env, admin: Address);
+    /// Read-only: reports whether the target is currently paused. Used by the
+    /// sweep to distinguish targets paused independently (before this sweep)
+    /// from targets paused by the sweep itself, so `resume_all` does not reverse
+    /// an independent pause.
+    fn is_paused(env: Env) -> bool;
 }
 
 /// Per-item outcome of `execute_with_compliance_batch` (#776).
@@ -701,12 +706,23 @@ impl SettlementWorkflowContract {
         let targets = Self::pause_targets(&env)?;
         let self_address = env.current_contract_address();
         let mut paused: Vec<Address> = Vec::new(&env);
+        let mut already_paused: Vec<Address> = Vec::new(&env);
 
         for target in targets.iter() {
             let client = PausableContractClient::new(&env, &target);
+            // Record whether the target was already paused before this sweep
+            // touched it, so `resume_all` can skip targets paused independently.
+            // Fail closed if we cannot read a target's state.
+            let pause_state = client.try_is_paused();
+            match pause_state {
+                Ok(Ok(true)) => already_paused.push_back(target.clone()),
+                Ok(Ok(false)) => {}
+                _ => return Err(WorkflowError::PauseTargetFailed),
+            }
             // Anything other than `Ok(Ok(()))` means this target did not pause.
             // Bailing out here reverts the targets already paused above, which is
-            // the atomicity guarantee.
+            // the atomicity guarantee. An already-paused target pauses
+            // idempotently, so a pre-paused target does not fail the sweep.
             if !matches!(client.try_pause(&self_address), Ok(Ok(()))) {
                 return Err(WorkflowError::PauseTargetFailed);
             }
@@ -716,6 +732,7 @@ impl SettlementWorkflowContract {
         env.storage()
             .instance()
             .set(&DataKey::EmergencyPausedAt, &env.ledger().timestamp());
+        env.storage().instance().set(&DataKey::AlreadyPaused, &already_paused);
         env.events().publish(
             (Symbol::new(&env, "emergency_pause_completed"),),
             (admin, paused.clone()),
@@ -753,10 +770,20 @@ impl SettlementWorkflowContract {
         }
 
         let targets = Self::pause_targets(&env)?;
+        let already_paused: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::AlreadyPaused)
+            .unwrap_or(Vec::new(&env));
         let self_address = env.current_contract_address();
         let mut resumed: Vec<Address> = Vec::new(&env);
 
         for target in targets.iter().rev() {
+            // Targets paused independently before the sweep are left paused: the
+            // orchestrator only reverses what it paused itself.
+            if already_paused.contains(&target) {
+                continue;
+            }
             let client = PausableContractClient::new(&env, &target);
             if !matches!(client.try_unpause(&self_address), Ok(Ok(()))) {
                 return Err(WorkflowError::UnpauseTargetFailed);
@@ -765,6 +792,7 @@ impl SettlementWorkflowContract {
         }
 
         env.storage().instance().remove(&DataKey::EmergencyPausedAt);
+        env.storage().instance().remove(&DataKey::AlreadyPaused);
         env.events().publish(
             (Symbol::new(&env, "emergency_pause_resumed"),),
             resumed.clone(),

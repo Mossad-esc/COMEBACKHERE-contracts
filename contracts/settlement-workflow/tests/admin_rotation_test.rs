@@ -359,6 +359,73 @@ fn re_nomination_supersedes_the_previous_one() {
 }
 
 // -------------------------------------------------------------------------
+// cancel_admin_transfer (#772)
+// -------------------------------------------------------------------------
+
+/// Cancelling a pending transfer leaves the original admin in control and the
+/// nominee can no longer accept.
+#[test]
+fn cancel_admin_transfer_then_accept_fails() {
+    let f = setup();
+    let new_admin = Address::generate(&f.env);
+
+    f.workflow.transfer_admin(&f.admin, &new_admin);
+    assert_eq!(stored_pending_admin(&f), Some(new_admin.clone()));
+
+    f.workflow.cancel_admin_transfer(&f.admin);
+    assert_eq!(stored_pending_admin(&f), None, "cancellation must clear the nomination");
+
+    let err = f
+        .workflow
+        .try_accept_admin(&new_admin)
+        .unwrap_err()
+        .unwrap();
+    assert_eq!(err, TreasuryError::NoPendingAdmin.into());
+    // The original admin keeps privileges.
+    assert_eq!(stored_admin(&f), Some(f.admin.clone()));
+}
+
+/// Only the current admin may cancel a pending transfer.
+#[test]
+fn cancel_admin_transfer_rejects_non_admin() {
+    let f = setup();
+    let new_admin = Address::generate(&f.env);
+    let impostor = Address::generate(&f.env);
+
+    f.workflow.transfer_admin(&f.admin, &new_admin);
+
+    let err = f
+        .workflow
+        .try_cancel_admin_transfer(&impostor)
+        .unwrap_err()
+        .unwrap();
+    assert_eq!(err, TreasuryError::Unauthorized.into());
+    assert_eq!(
+        stored_pending_admin(&f),
+        Some(new_admin.clone()),
+        "a rejected cancellation must not clear the nomination"
+    );
+
+    // The real admin can still cancel.
+    f.workflow.cancel_admin_transfer(&f.admin);
+    assert_eq!(stored_pending_admin(&f), None);
+}
+
+/// Cancelling with nothing outstanding is a typed error.
+#[test]
+fn cancel_admin_transfer_without_a_nomination_errors() {
+    let f = setup();
+
+    let err = f
+        .workflow
+        .try_cancel_admin_transfer(&f.admin)
+        .unwrap_err()
+        .unwrap();
+    assert_eq!(err, TreasuryError::NoPendingAdmin.into());
+    assert_eq!(stored_admin(&f), Some(f.admin.clone()));
+}
+
+// -------------------------------------------------------------------------
 // Events
 // -------------------------------------------------------------------------
 

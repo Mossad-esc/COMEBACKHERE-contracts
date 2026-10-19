@@ -297,6 +297,63 @@ fn resume_restores_every_target_and_clears_the_incident() {
     assert_eq!(f.workflow.get_emergency_paused_at(), None);
 }
 
+// ── already-paused targets (#773) ────────────────────────────────────────────
+
+/// The sweep must tolerate a target that was already paused before the sweep
+/// began: pause is idempotent, so a pre-paused target does not make the fan-out
+/// fail, and every target ends up paused.
+#[test]
+fn emergency_pause_all_tolerates_an_already_paused_target() {
+    let f = setup();
+    f.configure(&f.both_targets());
+
+    // An operator pauses compliance independently, outside the sweep. The
+    // workflow is compliance's pinned admin, so this call is authorized.
+    f.compliance.pause(&f.workflow_id);
+    assert!(!f.compliance_is_running());
+    assert!(f.treasury_is_running());
+
+    assert_eq!(
+        f.workflow.emergency_pause_all(&f.operator).unwrap(),
+        f.both_targets(),
+        "a pre-paused target must not fail the sweep"
+    );
+    assert!(!f.compliance_is_running());
+    assert!(!f.treasury_is_running());
+    assert_eq!(
+        f.workflow.get_emergency_paused_at(),
+        Some(f.env.ledger().timestamp())
+    );
+}
+
+/// `resume_all` reverses only what the sweep itself paused. A target paused
+/// independently before the sweep is left paused, so the orchestrator never
+/// reverses an action it did not take.
+#[test]
+fn resume_all_leaves_independently_paused_target_paused() {
+    let f = setup();
+    f.configure(&f.both_targets());
+
+    // Treasury is paused independently before the sweep.
+    f.treasury.pause(&f.workflow_id);
+    assert!(!f.treasury_is_running());
+    assert!(f.compliance_is_running());
+
+    f.workflow.emergency_pause_all(&f.operator);
+    assert!(!f.compliance_is_running());
+    assert!(!f.treasury_is_running());
+
+    // Only compliance was paused by the sweep; treasury was already paused.
+    let resumed = f.workflow.resume_all(&f.operator).unwrap();
+    assert_eq!(resumed, vec![&f.env, f.compliance_id()]);
+    assert!(f.compliance_is_running(), "the sweep-paused target must resume");
+    assert!(
+        !f.treasury_is_running(),
+        "an independently-paused target must stay paused"
+    );
+    assert_eq!(f.workflow.get_emergency_paused_at(), None);
+}
+
 /// A target that refuses to unpause must roll back the ones already resumed, so
 /// the protocol is never left partially resumed — the mirror of the pause rule.
 #[test]

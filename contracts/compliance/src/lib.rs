@@ -129,6 +129,8 @@ pub struct AddressStatus {
     pub blocked: bool,
     /// The `AllowedUntil` expiry timestamp, if a temporary allow was set.
     pub expires_at: Option<u64>,
+    /// The compliance tier recorded for the address (0 if none has been set).
+    pub tier: u32,
     /// Computed result equivalent to calling `is_allowed` — factors in block,
     /// expiry, and precedence rules.
     pub is_currently_allowed: bool,
@@ -310,6 +312,32 @@ impl ComplianceContract {
         Ok(results)
     }
 
+    /// Returns the full [`AddressStatus`] for each address in `addresses`, in
+    /// input order, capped at [`MAX_BATCH_SIZE`].
+    ///
+    /// Unlike [`bulk_check_addresses`](Self::bulk_check_addresses), which returns
+    /// one boolean per address, this returns the full status — including tier and
+    /// expiry — so dashboards can render compliance state without one call per
+    /// address. Read-only: no auth required.
+    ///
+    /// # Errors
+    /// - [`ContractError::BatchTooLarge`] when more than [`MAX_BATCH_SIZE`]
+    ///   addresses are passed.
+    pub fn bulk_get_address_status(
+        env: Env,
+        addresses: Vec<Address>,
+    ) -> Result<Vec<AddressStatus>, ContractError> {
+        if addresses.len() > MAX_BATCH_SIZE {
+            return Err(ContractError::BatchTooLarge);
+        }
+        let now = env.ledger().timestamp();
+        let mut results = Vec::new(&env);
+        for address in addresses.iter() {
+            results.push_back(Self::address_status_at(&env, &address, now));
+        }
+        Ok(results)
+    }
+
     pub fn is_allowed(env: Env, address: Address) -> bool {
         Self::is_allowed_at(&env, &address, env.ledger().timestamp())
     }
@@ -381,6 +409,31 @@ impl ComplianceContract {
         match storage.get::<_, u64>(&DataKey::AllowedUntil(address.clone())) {
             Some(expires_at) => now < expires_at,
             None => true,
+        }
+    }
+
+    /// Computes the full [`AddressStatus`] for a single address at `now` without
+    /// auth. Reuses [`is_allowed_at`](Self::is_allowed_at) so the batch and
+    /// single-address paths can never disagree on the effective decision.
+    fn address_status_at(env: &Env, address: &Address, now: u64) -> AddressStatus {
+        let storage = env.storage().persistent();
+        let allowed: bool = storage
+            .get(&DataKey::Allowed(address.clone()))
+            .unwrap_or(false);
+        let blocked: bool = storage
+            .get(&DataKey::Blocked(address.clone()))
+            .unwrap_or(false);
+        let expires_at: Option<u64> = storage
+            .get::<_, u64>(&DataKey::AllowedUntil(address.clone()));
+        let tier: u32 = storage
+            .get(&DataKey::Tier(address.clone()))
+            .unwrap_or(0u32);
+        AddressStatus {
+            allowed,
+            blocked,
+            expires_at,
+            tier,
+            is_currently_allowed: Self::is_allowed_at(env, address, now),
         }
     }
 
@@ -1103,6 +1156,14 @@ impl ComplianceContract {
         Ok(())
     }
 
+    /// Returns `true` while the contract is paused. Read-only, no auth required.
+    pub fn is_paused(env: Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false)
+    }
+
     /// Assign an operator address. Only admin may call this.
     /// Not gated behind `require_not_paused` — role assignment, like admin
     /// transfer, is permitted while paused.
@@ -1121,6 +1182,20 @@ impl ComplianceContract {
     /// exposing all admin-configured state via corresponding read entrypoints.
     pub fn get_operator(env: Env) -> Option<Address> {
         env.storage().instance().get(&DataKey::Operator)
+    }
+
+    /// Returns the current administrator, or `None` if the contract has not been
+    /// initialized yet. No auth required (read-only).
+    pub fn get_admin(env: Env) -> Option<Address> {
+        env.storage().instance().get(&DataKey::Admin)
+    }
+
+    /// Returns the staged pending administrator for an in-progress two-step
+    /// transfer (`transfer_admin` / `accept_admin`), or `None` when no nomination
+    /// is outstanding — including after a completed handover or a cancellation.
+    /// No auth required (read-only).
+    pub fn get_pending_admin(env: Env) -> Option<Address> {
+        env.storage().instance().get(&DataKey::PendingAdmin)
     }
 
     /// Add an operator to the bounded operator set. Only admin may call this.

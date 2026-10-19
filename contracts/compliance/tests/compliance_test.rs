@@ -573,6 +573,59 @@ fn cancel_admin_transfer_rejects_non_admin() {
     client.accept_admin(&new_admin);
 }
 
+// ── #765 get_admin / get_pending_admin ───────────────────────────────────────
+
+#[test]
+fn get_admin_returns_current_admin() {
+    let (_env, admin, _subject, client) = setup();
+    assert_eq!(client.get_admin(), Some(admin.clone()));
+}
+
+#[test]
+fn get_admin_returns_none_before_initialize() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let id = env.register_contract(None, ComplianceContract);
+    let client = ComplianceContractClient::new(&env, &id);
+    assert_eq!(client.get_admin(), None);
+}
+
+#[test]
+fn get_pending_admin_returns_none_when_no_transfer() {
+    let (_env, _admin, _subject, client) = setup();
+    assert_eq!(client.get_pending_admin(), None);
+}
+
+#[test]
+fn get_pending_admin_returns_nominee_after_transfer() {
+    let (env, admin, _subject, client) = setup();
+    let new_admin = Address::generate(&env);
+    client.transfer_admin(&admin, &new_admin);
+    assert_eq!(client.get_pending_admin(), Some(new_admin.clone()));
+    // get_admin still reports the current admin until the handover completes.
+    assert_eq!(client.get_admin(), Some(admin.clone()));
+}
+
+#[test]
+fn get_pending_admin_returns_none_after_accept() {
+    let (env, admin, _subject, client) = setup();
+    let new_admin = Address::generate(&env);
+    client.transfer_admin(&admin, &new_admin);
+    client.accept_admin(&new_admin);
+    assert_eq!(client.get_pending_admin(), None);
+    assert_eq!(client.get_admin(), Some(new_admin.clone()));
+}
+
+#[test]
+fn get_pending_admin_returns_none_after_cancel() {
+    let (env, admin, _subject, client) = setup();
+    let new_admin = Address::generate(&env);
+    client.transfer_admin(&admin, &new_admin);
+    client.cancel_admin_transfer(&admin);
+    assert_eq!(client.get_pending_admin(), None);
+    assert_eq!(client.get_admin(), Some(admin.clone()));
+}
+
 #[test]
 fn allow_address_returns_unauthorized_for_non_admin() {
     let env = Env::default();
@@ -640,6 +693,122 @@ fn bulk_check_empty_input_returns_empty() {
     let (env, _, _, client) = setup();
     let addresses: soroban_sdk::Vec<Address> = soroban_sdk::Vec::new(&env);
     let results = client.bulk_check_addresses(&addresses);
+    assert_eq!(results.len(), 0);
+}
+
+// ── bulk_get_address_status ──────────────────────────────────────────────────
+
+#[test]
+fn bulk_get_address_status_returns_full_status() {
+    use compliance::AddressStatus;
+    let (env, admin, _, client) = setup();
+    let allowed = Address::generate(&env);
+    let blocked = Address::generate(&env);
+    let unknown = Address::generate(&env);
+
+    client.allow_address(&admin, &allowed);
+    client.block_address(&admin, &blocked, &None);
+
+    let statuses = client
+        .bulk_get_address_status(&soroban_sdk::vec![&env, allowed.clone(), blocked.clone(), unknown.clone()])
+        .unwrap();
+
+    assert_eq!(statuses.len(), 3);
+    assert_eq!(
+        statuses.get(0).unwrap(),
+        &AddressStatus {
+            allowed: true,
+            blocked: false,
+            expires_at: None,
+            tier: 0,
+            is_currently_allowed: true,
+        }
+    );
+    assert_eq!(
+        statuses.get(1).unwrap(),
+        &AddressStatus {
+            allowed: false,
+            blocked: true,
+            expires_at: None,
+            tier: 0,
+            is_currently_allowed: false,
+        }
+    );
+    assert_eq!(
+        statuses.get(2).unwrap(),
+        &AddressStatus {
+            allowed: false,
+            blocked: false,
+            expires_at: None,
+            tier: 0,
+            is_currently_allowed: false,
+        }
+    );
+}
+
+#[test]
+fn bulk_get_address_status_includes_tier() {
+    use compliance::AddressStatus;
+    let (env, admin, subject, client) = setup();
+    client.allow_address_with_tier(&admin, &subject, &3);
+
+    let statuses = client.bulk_get_address_status(&soroban_sdk::vec![&env, subject.clone()]).unwrap();
+    assert_eq!(
+        statuses.get(0).unwrap(),
+        &AddressStatus {
+            allowed: true,
+            blocked: false,
+            expires_at: None,
+            tier: 3,
+            is_currently_allowed: true,
+        }
+    );
+}
+
+#[test]
+fn bulk_get_address_status_includes_expiry() {
+    use compliance::AddressStatus;
+    let (env, admin, subject, client) = setup();
+    let now = env.ledger().timestamp();
+    client.allow_address_until(&admin, &subject, &(now + 1000));
+
+    let statuses = client.bulk_get_address_status(&soroban_sdk::vec![&env, subject.clone()]).unwrap();
+    let status = statuses.get(0).unwrap();
+    assert_eq!(status.expires_at, Some(now + 1000));
+    assert_eq!(status.tier, 0);
+    assert!(status.is_currently_allowed);
+}
+
+#[test]
+fn bulk_get_address_status_expired_temp_allow_is_not_currently_allowed() {
+    use compliance::AddressStatus;
+    let (env, admin, subject, client) = setup();
+    let now = env.ledger().timestamp();
+    client.allow_address_until(&admin, &subject, &now); // expires at now → not currently allowed
+
+    let statuses = client.bulk_get_address_status(&soroban_sdk::vec![&env, subject.clone()]).unwrap();
+    let status = statuses.get(0).unwrap();
+    assert_eq!(status.expires_at, Some(now));
+    assert_eq!(status.allowed, true);
+    assert!(!status.is_currently_allowed);
+}
+
+#[test]
+fn bulk_get_address_status_over_cap_is_rejected() {
+    let (env, admin, _, client) = setup();
+    let mut addrs: soroban_sdk::Vec<Address> = soroban_sdk::Vec::new(&env);
+    for _ in 0..(compliance::MAX_BATCH_SIZE + 1) {
+        addrs.push_back(Address::generate(&env));
+    }
+    let result = client.try_bulk_get_address_status(&addrs);
+    assert_eq!(result, Err(Ok(ContractError::BatchTooLarge)));
+}
+
+#[test]
+fn bulk_get_address_status_empty_input_returns_empty() {
+    let (env, _, _, client) = setup();
+    let addresses: soroban_sdk::Vec<Address> = soroban_sdk::Vec::new(&env);
+    let results = client.bulk_get_address_status(&addresses).unwrap();
     assert_eq!(results.len(), 0);
 }
 
