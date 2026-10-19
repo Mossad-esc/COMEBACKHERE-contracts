@@ -51,6 +51,14 @@ impl TreasuryContract {
             .publish((Symbol::new(&env, "treasury_unpaused"),), admin);
     }
 
+    /// Returns `true` while the contract is paused. Read-only, no auth required.
+    pub fn is_paused(env: Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false)
+    }
+
     /// Configures the maximum amount withdrawable per rolling time window (admin-only).
     /// Applies to both `withdraw` (tracked per recipient `to`) and `withdraw_all` (tracked
     /// per `recipient`) — see `deposits.rs`. Passing `limit <= 0` disables the cap

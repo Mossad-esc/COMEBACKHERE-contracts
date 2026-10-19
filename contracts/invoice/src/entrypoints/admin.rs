@@ -85,6 +85,14 @@ impl InvoiceContract {
         Ok(())
     }
 
+    /// Returns `true` while the contract is paused. Read-only, no auth required.
+    pub fn is_paused(env: Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false)
+    }
+
     /// Extend the expiry of a pending invoice.
     pub fn extend_expiry(
         env: Env,
