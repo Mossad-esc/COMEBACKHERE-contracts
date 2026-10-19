@@ -44,6 +44,55 @@ pub trait PausableInterface {
     fn unpause(env: Env, admin: Address);
 }
 
+/// Per-item outcome of `execute_with_compliance_batch` (#776).
+///
+/// One entry is returned per requested settlement ID, in the same order, so
+/// callers can tell exactly which settlements executed and which were skipped
+/// (and why) without diffing events or re-querying treasury.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SettlementBatchResult {
+    /// The settlement was executed and funds moved.
+    Executed,
+    /// No settlement exists with this ID.
+    SkippedNotFound,
+    /// The settlement is already executed (or otherwise terminal).
+    SkippedAlreadyExecuted,
+    /// The settlement is on hold and the hold has not expired.
+    SkippedOnHold,
+    /// The settlement's approval weight is below the threshold.
+    SkippedThresholdNotMet,
+    /// The settlement's execution deadline has passed.
+    SkippedExecutionDeadlineExceeded,
+    /// The token contract is the treasury itself (invalid).
+    SkippedInvalidTokenContract,
+    /// The token contract is not on the allowlist.
+    SkippedTokenNotAllowed,
+}
+
+/// Maps a treasury execution error to the corresponding per-item skip status.
+/// Errors that are pre-checked at batch level (threshold, token contract,
+/// allowlist) are included for completeness even though they abort the whole
+/// batch before the per-item loop.
+fn treasury_error_to_batch_result(err: TreasuryError) -> SettlementBatchResult {
+    use TreasuryError::*;
+    match err {
+        SettlementNotFound => SettlementBatchResult::SkippedNotFound,
+        AlreadyExecuted => SettlementBatchResult::SkippedAlreadyExecuted,
+        SettlementOnHold => SettlementBatchResult::SkippedOnHold,
+        ThresholdNotMet => SettlementBatchResult::SkippedThresholdNotMet,
+        ExecutionDeadlineExceeded => {
+            SettlementBatchResult::SkippedExecutionDeadlineExceeded
+        }
+        InvalidTokenContract => SettlementBatchResult::SkippedInvalidTokenContract,
+        TokenNotAllowed => SettlementBatchResult::SkippedTokenNotAllowed,
+        // Batch-level pre-check failures; should not occur per-item once the
+        // pre-checks have passed, but mapped defensively.
+        ThresholdNotConfigured => SettlementBatchResult::SkippedThresholdNotMet,
+        _ => SettlementBatchResult::SkippedAlreadyExecuted,
+    }
+}
+
 /// Largest number of contracts a single `emergency_pause_all` may fan out to.
 ///
 /// Bounded because the fan-out is a sequence of cross-contract invocations: an
@@ -240,6 +289,35 @@ impl SettlementWorkflowContract {
         Ok(())
     }
 
+    /// Updates the pinned compliance and treasury contract instances (#771).
+    ///
+    /// Lets the admin point the workflow at upgraded compliance or treasury
+    /// contracts without redeploying the workflow itself. `ComplianceId` and
+    /// `TreasuryId` are fixed at initialization, so redeploying compliance
+    /// previously meant redeploying the workflow too.
+    ///
+    /// Admin-only: `admin` must authorize and be the stored administrator.
+    /// Emits: `contract_ids_updated`.
+    pub fn update_contract_ids(
+        env: Env,
+        admin: Address,
+        compliance_id: Address,
+        treasury_id: Address,
+    ) -> Result<(), TreasuryError> {
+        Self::require_admin(&env, &admin)?;
+        env.storage()
+            .instance()
+            .set(&DataKey::ComplianceId, &compliance_id);
+        env.storage()
+            .instance()
+            .set(&DataKey::TreasuryId, &treasury_id);
+        env.events().publish(
+            (Symbol::new(&env, "contract_ids_updated"),),
+            (compliance_id.clone(), treasury_id.clone()),
+        );
+        Ok(())
+    }
+
     /// Returns the pinned compliance contract instance.
     fn compliance_id(env: &Env) -> Address {
         env.storage()
@@ -370,10 +448,11 @@ impl SettlementWorkflowContract {
     /// gate for `merchant` once, then executes each settlement ID through the pinned
     /// treasury. Settlement IDs that don't exist, are already executed, or otherwise
     /// fail treasury execution are silently skipped (per treasury's batch precedent,
-    /// #38) rather than aborting the whole batch; only successfully executed IDs are
-    /// returned and emitted. If the shared compliance gate fails, the whole batch is
-    /// rejected with `ComplianceCheckFailed`. Traps with `ContractPaused` while the
-    /// workflow is paused (#616).
+    /// #38) rather than aborting the whole batch; a per-item status is returned for
+    /// every requested ID so callers can tell which settled and which were skipped.
+    /// If the shared compliance gate fails, the whole batch is rejected with
+    /// `ComplianceCheckFailed`. Traps with `ContractPaused` while the workflow is
+    /// paused (#616).
     ///
     /// Emits `settlement_workflow_executed` for each settlement actually executed,
     /// each carrying `(merchant, token_contract, amount)`, followed by exactly one
@@ -386,40 +465,47 @@ impl SettlementWorkflowContract {
         settlement_ids: Vec<u64>,
         token_contract: Address,
         merchant: Address,
-    ) -> Result<Vec<u64>, TreasuryError> {
+    ) -> Result<Vec<SettlementBatchResult>, TreasuryError> {
         Self::require_not_paused(&env);
         let compliance = ComplianceClient::new(&env, &Self::compliance_id(&env));
         compliance.require_allowed_for_treasury(&merchant)?;
         let treasury = TreasuryOnlyClient::new(&env, &Self::treasury_id(&env));
         let requested = settlement_ids.len();
-        let mut executed = Vec::new(&env);
+        let mut results = Vec::new(&env);
+        let mut executed_count: u32 = 0;
         for id in settlement_ids.iter() {
             let result = treasury.try_execute_settlement(
                 &env.current_contract_address(),
                 &id,
                 &token_contract,
             );
-            if result.is_ok() {
-                // Read after execution: a skipped (non-existent) ID is never read,
-                // so `get_settlement`'s `SettlementNotFound` panic can't turn a
-                // skippable ID into a batch-wide abort.
-                let amount = treasury.get_settlement(&id).amount;
-                executed.push_back(id);
-                env.events().publish(
-                    (Symbol::new(&env, "settlement_workflow_executed"), id),
-                    (merchant.clone(), token_contract.clone(), amount),
-                );
+            match result {
+                Ok(()) => {
+                    // Read after execution: a skipped (non-existent) ID is never read,
+                    // so `get_settlement`'s `SettlementNotFound` panic can't turn a
+                    // skippable ID into a batch-wide abort.
+                    let amount = treasury.get_settlement(&id).amount;
+                    results.push_back(SettlementBatchResult::Executed);
+                    executed_count += 1;
+                    env.events().publish(
+                        (Symbol::new(&env, "settlement_workflow_executed"), id),
+                        (merchant.clone(), token_contract.clone(), amount),
+                    );
+                }
+                Err(err) => {
+                    results.push_back(treasury_error_to_batch_result(err));
+                    // Invalid / already-executed / threshold-failed IDs are silently skipped.
+                }
             }
-            // Invalid / already-executed / threshold-failed IDs are silently skipped.
         }
         // `workflow_batch_completed` (not `settlement_workflow_batch_completed`):
         // Soroban symbols are capped at 32 characters and the longer name is
         // rejected by the host at runtime with `InvalidInput`.
         env.events().publish(
             (Symbol::new(&env, "workflow_batch_completed"),),
-            (requested, executed.len()),
+            (requested, executed_count),
         );
-        Ok(executed)
+        Ok(results)
     }
 
     // ── emergency pause coordination (#73) ───────────────────────────────────

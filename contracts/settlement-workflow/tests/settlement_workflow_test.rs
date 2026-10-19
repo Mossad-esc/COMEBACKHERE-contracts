@@ -2,7 +2,9 @@
 mod malicious_compliance;
 
 use compliance::ComplianceContractClient;
-use settlement_workflow::{SettlementWorkflowContract, SettlementWorkflowContractClient};
+use settlement_workflow::{
+    SettlementBatchResult, SettlementWorkflowContract, SettlementWorkflowContractClient,
+};
 use soroban_sdk::{
     contract, contractimpl,
     testutils::{Address as _, Events},
@@ -196,7 +198,14 @@ fn batch_executes_multiple_settlements_and_skips_invalid_ids() {
     let executed = workflow.execute_with_compliance_batch(&ids, &token_id, &merchant);
     assert_eq!(
         executed,
-        soroban_sdk::Vec::from_array(&env, [good_1, good_2])
+        soroban_sdk::Vec::from_array(
+            &env,
+            [
+                SettlementBatchResult::Executed,
+                SettlementBatchResult::SkippedNotFound,
+                SettlementBatchResult::Executed,
+            ]
+        )
     );
     assert_eq!(
         token::Client::new(&env, &token_id).balance(&merchant),
@@ -759,7 +768,16 @@ fn batch_summary_is_emitted_when_every_item_is_skipped() {
     ids.push_back(bogus);
 
     let executed = workflow.execute_with_compliance_batch(&ids, &token_id, &merchant);
-    assert_eq!(executed, soroban_sdk::Vec::from_array(&env, []));
+    assert_eq!(
+        executed,
+        soroban_sdk::Vec::from_array(
+            &env,
+            [
+                SettlementBatchResult::SkippedAlreadyExecuted,
+                SettlementBatchResult::SkippedNotFound,
+            ]
+        )
+    );
 
     let events = workflow_events(&env, &workflow_id);
     assert_eq!(
@@ -774,6 +792,90 @@ fn batch_summary_is_emitted_when_every_item_is_skipped() {
         )],
         "a fully-skipped batch must still publish its summary event"
     );
+}
+
+/// #771: `update_contract_ids` lets the admin re-point the workflow at upgraded
+/// compliance or treasury contracts without redeploying the workflow.
+#[test]
+fn update_contract_ids_repoints_workflow() {
+    let (
+        env,
+        admin,
+        _merchant,
+        _compliance,
+        _compliance_id,
+        _treasury,
+        _treasury_id,
+        workflow,
+        _token_id,
+    ) = setup();
+    let new_compliance_id = Address::generate(&env);
+    let new_treasury_id = Address::generate(&env);
+
+    // Admin can update the pinned contract IDs.
+    workflow.update_contract_ids(&admin, &new_compliance_id, &new_treasury_id);
+
+    // A stranger cannot.
+    let stranger = Address::generate(&env);
+    let err = workflow
+        .try_update_contract_ids(&stranger, &new_compliance_id, &new_treasury_id)
+        .unwrap_err()
+        .unwrap();
+    assert_eq!(err, TreasuryError::Unauthorized.into());
+}
+
+/// #771: `update_contract_ids` emits `contract_ids_updated`.
+#[test]
+fn update_contract_ids_emits_event() {
+    let (
+        env,
+        admin,
+        _merchant,
+        _compliance,
+        _compliance_id,
+        _treasury,
+        _treasury_id,
+        workflow,
+        _token_id,
+    ) = setup();
+    let workflow_id = workflow.address.clone();
+    let new_compliance_id = Address::generate(&env);
+    let new_treasury_id = Address::generate(&env);
+
+    workflow.update_contract_ids(&admin, &new_compliance_id, &new_treasury_id);
+
+    let events = workflow_events(&env, &workflow_id);
+    assert!(
+        events.iter().any(|(name, ..)| name == "contract_ids_updated"),
+        "contract_ids_updated event must be emitted"
+    );
+}
+
+/// #771: `update_contract_ids` is rejected while paused.
+#[test]
+fn update_contract_ids_rejected_while_paused() {
+    let (
+        env,
+        admin,
+        _merchant,
+        _compliance,
+        _compliance_id,
+        _treasury,
+        _treasury_id,
+        workflow,
+        _token_id,
+    ) = setup();
+
+    workflow.pause(&admin);
+    let err = workflow
+        .try_update_contract_ids(
+            &admin,
+            &Address::generate(&env),
+            &Address::generate(&env),
+        )
+        .unwrap_err()
+        .unwrap();
+    assert_eq!(err, TreasuryError::ContractPaused.into());
 }
 
 /// The workflow's emitted event names must match `abis/settlement-workflow.json`
