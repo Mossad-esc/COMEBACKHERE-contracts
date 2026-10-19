@@ -59,7 +59,7 @@ pub enum SimulationResult {
 ///
 /// Both methods are declared as returning `()`, which is what the generated
 /// client expects for `invoice::pause -> Result<(), InvoiceError>`,
-/// `treasury::pause -> ()` and `compliance::pause -> Result<(), ContractError>`:
+/// `treasury::pause -> ()` and `compliance::pause -> Result<(), ComplianceError>`:
 /// the host unwraps a `Result` return and traps on `Err`, so a refusal to pause
 /// surfaces as a failed invocation rather than being silently ignored.
 #[contractclient(name = "PausableContractClient")]
@@ -118,6 +118,14 @@ pub enum WorkflowError {
     /// undo", and so the orchestrator cannot be used to unpause a protocol that
     /// somebody else paused through their own admin key.
     NotEmergencyPaused = 10,
+    /// `initialize` was called more than once. Distinct from `NotConfigured`
+    /// so an operator can tell "never initialized" from "already initialized".
+    AlreadyInitialized = 11,
+    /// The workflow is paused; `execute_with_compliance*` entrypoints are
+    /// rejected while paused (#616).
+    ContractPaused = 12,
+    /// `accept_admin` was called with no pending admin transfer.
+    NoPendingAdmin = 13,
 }
 
 /// Storage keys for the workflow contract.
@@ -183,7 +191,7 @@ impl SettlementWorkflowContract {
     /// trust relationship is expressed in terms of.
     pub fn initialize(env: Env, admin: Address, compliance_id: Address, treasury_id: Address) {
         if env.storage().instance().has(&DataKey::ComplianceId) {
-            soroban_sdk::panic_with_error!(env, TreasuryError::AlreadyInitialized);
+            soroban_sdk::panic_with_error!(env, WorkflowError::AlreadyInitialized);
         }
         admin.require_auth();
         env.storage().instance().set(&DataKey::Admin, &admin);
@@ -213,7 +221,7 @@ impl SettlementWorkflowContract {
     /// compromised nominee key does not leave the contract stuck.
     ///
     /// # Errors
-    /// - Traps with `TreasuryError::Unauthorized` if `admin` is not the stored
+    /// - Traps with `WorkflowError::Unauthorized` if `admin` is not the stored
     ///   administrator.
     ///
     /// Emits: `admin_transfer_initiated` so indexers can see a nomination is
@@ -222,7 +230,7 @@ impl SettlementWorkflowContract {
         env: Env,
         admin: Address,
         new_admin: Address,
-    ) -> Result<(), TreasuryError> {
+    ) -> Result<(), WorkflowError> {
         Self::require_admin(&env, &admin)?;
         env.storage()
             .instance()
@@ -239,23 +247,23 @@ impl SettlementWorkflowContract {
     /// nomination must match. Only then does the admin role move.
     ///
     /// # Errors
-    /// - Traps with `TreasuryError::NoPendingAdmin` if no nomination is
+    /// - Traps with `WorkflowError::NoPendingAdmin` if no nomination is
     ///   outstanding — including after a completed handover, since
     ///   `PendingAdmin` is cleared on success and a transfer is not repeatable
     ///   until the admin initiates a new one.
-    /// - Traps with `TreasuryError::Unauthorized` if `new_admin` is not the
+    /// - Traps with `WorkflowError::Unauthorized` if `new_admin` is not the
     ///   nominee.
     ///
     /// Emits: `admin_transferred`.
-    pub fn accept_admin(env: Env, new_admin: Address) -> Result<(), TreasuryError> {
+    pub fn accept_admin(env: Env, new_admin: Address) -> Result<(), WorkflowError> {
         new_admin.require_auth();
         let pending: Address = env
             .storage()
             .instance()
             .get(&DataKey::PendingAdmin)
-            .ok_or(TreasuryError::NoPendingAdmin)?;
+            .ok_or(WorkflowError::NoPendingAdmin)?;
         if pending != new_admin {
-            return Err(TreasuryError::Unauthorized);
+            return Err(WorkflowError::Unauthorized);
         }
         env.storage().instance().set(&DataKey::Admin, &new_admin);
         env.storage().instance().remove(&DataKey::PendingAdmin);
@@ -283,7 +291,7 @@ impl SettlementWorkflowContract {
     /// Pauses the workflow (admin-only, #616): both `execute_with_compliance*`
     /// entrypoints trap with `ContractPaused` until `unpause` is called.
     /// Emits: `settlement_workflow_paused`.
-    pub fn pause(env: Env, admin: Address) -> Result<(), TreasuryError> {
+    pub fn pause(env: Env, admin: Address) -> Result<(), WorkflowError> {
         Self::require_admin(&env, &admin)?;
         env.storage().instance().set(&DataKey::Paused, &true);
         env.events()
@@ -293,7 +301,7 @@ impl SettlementWorkflowContract {
 
     /// Resumes normal operation after a pause (admin-only, #616).
     /// Emits: `settlement_workflow_unpaused`.
-    pub fn unpause(env: Env, admin: Address) -> Result<(), TreasuryError> {
+    pub fn unpause(env: Env, admin: Address) -> Result<(), WorkflowError> {
         Self::require_admin(&env, &admin)?;
         env.storage().instance().set(&DataKey::Paused, &false);
         env.events()
@@ -310,14 +318,14 @@ impl SettlementWorkflowContract {
     }
 
     /// Returns the current workflow admin.
-    pub fn get_admin(env: Env) -> Result<Address, TreasuryError> {
+    pub fn get_admin(env: Env) -> Result<Address, WorkflowError> {
         env.storage()
             .instance()
             .get(&DataKey::Admin)
-            .ok_or(TreasuryError::Unauthorized)
+            .ok_or(WorkflowError::Unauthorized)
     }
 
-    /// Traps with [`TreasuryError::ContractPaused`] while the workflow is paused (#616).
+    /// Traps with [`WorkflowError::ContractPaused`] while the workflow is paused (#616).
     fn require_not_paused(env: &Env) {
         let paused: bool = env
             .storage()
@@ -325,7 +333,7 @@ impl SettlementWorkflowContract {
             .get(&DataKey::Paused)
             .unwrap_or(false);
         if paused {
-            soroban_sdk::panic_with_error!(env, TreasuryError::ContractPaused);
+            soroban_sdk::panic_with_error!(env, WorkflowError::ContractPaused);
         }
     }
 
@@ -335,11 +343,11 @@ impl SettlementWorkflowContract {
     /// contract that was never initialized, and treating it as "nobody is
     /// authorized" is safer and less surprising than panicking, since a missing
     /// admin can never be the caller's own address anyway.
-    fn require_admin(env: &Env, admin: &Address) -> Result<(), TreasuryError> {
+    fn require_admin(env: &Env, admin: &Address) -> Result<(), WorkflowError> {
         admin.require_auth();
         let stored: Option<Address> = env.storage().instance().get(&DataKey::Admin);
         if stored.as_ref() != Some(admin) {
-            return Err(TreasuryError::Unauthorized);
+            return Err(WorkflowError::Unauthorized);
         }
         Ok(())
     }
@@ -366,7 +374,7 @@ impl SettlementWorkflowContract {
         settlement_id: u64,
         token_contract: Address,
         merchant: Address,
-    ) -> Result<(), TreasuryError> {
+    ) -> Result<(), WorkflowError> {
         Self::require_not_paused(&env);
         let compliance = ComplianceClient::new(&env, &Self::compliance_id(&env));
         compliance.require_allowed_for_treasury(&merchant)?;
@@ -447,7 +455,7 @@ impl SettlementWorkflowContract {
         settlement_ids: Vec<u64>,
         token_contract: Address,
         merchant: Address,
-    ) -> Result<Vec<u64>, TreasuryError> {
+    ) -> Result<Vec<u64>, WorkflowError> {
         Self::require_not_paused(&env);
         let compliance = ComplianceClient::new(&env, &Self::compliance_id(&env));
         compliance.require_allowed_for_treasury(&merchant)?;

@@ -1,4 +1,4 @@
-use compliance::{ComplianceContract, ComplianceContractClient, ContractError, MAX_OPERATORS};
+use compliance::{ComplianceContract, ComplianceContractClient, ComplianceError, MAX_OPERATORS};
 use soroban_sdk::{
     symbol_short,
     testutils::{Address as _, Events, Ledger as _},
@@ -61,7 +61,7 @@ fn operator_rejected_from_allow_address() {
 
     // Operator should NOT be able to call allow_address
     let result = client.try_allow_address(&operator, &subject);
-    assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+    assert_eq!(result, Err(Ok(ComplianceError::Unauthorized)));
 }
 
 #[test]
@@ -83,7 +83,7 @@ fn operator_cannot_clear_an_admin_placed_block() {
     let result = client.try_clear_address(&operator, &subject);
     assert_eq!(
         result,
-        Err(Ok(ContractError::OperatorCannotClearAdminBlock))
+        Err(Ok(ComplianceError::OperatorCannotClearAdminBlock))
     );
     assert!(client.is_blocked(&subject));
     assert!(!client.is_allowed(&subject));
@@ -143,7 +143,7 @@ fn operator_privilege_correctly_distinguished_in_multiple_operations() {
     // Still refused for the operator: the block is the admin's, not the operator's.
     assert_eq!(
         client.try_clear_address(&operator, &subject1),
-        Err(Ok(ContractError::OperatorCannotClearAdminBlock))
+        Err(Ok(ComplianceError::OperatorCannotClearAdminBlock))
     );
 
     client.clear_address(&admin, &subject1);
@@ -195,7 +195,7 @@ fn remove_operator_revokes_address_status_access() {
 
     // After removal, operator is rejected.
     let result = client.try_address_status(&op, &subject);
-    assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+    assert_eq!(result, Err(Ok(ComplianceError::Unauthorized)));
 }
 
 #[test]
@@ -245,7 +245,7 @@ fn operators_can_block_but_not_allow_addresses() {
     // Allowing an address stays admin-only.
     assert_eq!(
         client.try_allow_address(&op, &subject),
-        Err(Ok(ContractError::Unauthorized))
+        Err(Ok(ComplianceError::Unauthorized))
     );
     // Operators may place blocks (#604) and clear blocks they placed themselves...
     client.block_address(&op, &subject, &None);
@@ -257,7 +257,7 @@ fn operators_can_block_but_not_allow_addresses() {
     client.block_address(&admin, &other, &None);
     assert_eq!(
         client.try_clear_address(&op, &other),
-        Err(Ok(ContractError::OperatorCannotClearAdminBlock))
+        Err(Ok(ComplianceError::OperatorCannotClearAdminBlock))
     );
 }
 
@@ -362,7 +362,7 @@ fn add_operator_rejected_when_set_is_full() {
     // One more should fail.
     let extra = Address::generate(&env);
     let result = client.try_add_operator(&admin, &extra);
-    assert_eq!(result, Err(Ok(ContractError::OperatorSetFull)));
+    assert_eq!(result, Err(Ok(ComplianceError::OperatorSetFull)));
 }
 
 #[test]
@@ -439,7 +439,7 @@ fn only_admin_can_add_operator() {
     let non_admin = Address::generate(&env);
 
     let result = client.try_add_operator(&non_admin, &op);
-    assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+    assert_eq!(result, Err(Ok(ComplianceError::Unauthorized)));
 
     // Admin can add.
     client.add_operator(&admin, &op);
@@ -456,7 +456,7 @@ fn only_admin_can_remove_operator() {
     client.add_operator(&admin, &op);
 
     let result = client.try_remove_operator(&non_admin, &op);
-    assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+    assert_eq!(result, Err(Ok(ComplianceError::Unauthorized)));
 
     // Operator set should be unchanged.
     assert_eq!(client.get_operators().len(), 1);
@@ -474,7 +474,7 @@ fn operator_set_preserved_across_remove_and_re_add() {
     client.remove_operator(&admin, &op);
     assert_eq!(
         client.try_address_status(&op, &subject),
-        Err(Ok(ContractError::Unauthorized))
+        Err(Ok(ComplianceError::Unauthorized))
     );
 
     client.add_operator(&admin, &op);

@@ -16,7 +16,7 @@
 //! rollback that only appears to work — because the test read a flag instead of
 //! exercising the contract's behaviour — cannot pass.
 
-use compliance::{ComplianceContract, ComplianceContractClient, ContractError};
+use compliance::{ComplianceContract, ComplianceContractClient, ComplianceError};
 use settlement_workflow::{
     SettlementWorkflowContract, SettlementWorkflowContractClient, WorkflowError, MAX_PAUSE_TARGETS,
 };
@@ -171,7 +171,7 @@ impl Fixture {
         !matches!(
             self.compliance
                 .try_allow_address(&self.workflow_id, &self.third_party),
-            Err(Ok(ContractError::ContractPaused))
+            Err(Ok(ComplianceError::ContractPaused))
         )
     }
 
