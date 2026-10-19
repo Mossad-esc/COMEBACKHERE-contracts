@@ -252,12 +252,156 @@ fn operators_can_block_but_not_allow_addresses() {
     assert!(client.is_blocked(&subject));
     client.clear_address(&op, &subject);
     assert!(!client.is_blocked(&subject));
-    // ...but not clear one the admin placed.
+
+    // ...but not blocks placed by others.
     client.block_address(&admin, &other, &None);
     assert_eq!(
         client.try_clear_address(&op, &other),
         Err(Ok(ContractError::OperatorCannotClearAdminBlock))
     );
+}
+
+// ── MAX_OPERATORS cap tests (#755) ────────────────────────────────────────────
+
+#[test]
+fn add_operator_accepts_up_to_max_operators() {
+    let (env, admin, _, client) = setup();
+
+    // Adding operators up to and including the cap must succeed.
+    for _ in 0..MAX_OPERATORS {
+        let op = Address::generate(&env);
+        client.add_operator(&admin, &op);
+    }
+
+    let ops = client.get_operators();
+    assert_eq!(ops.len(), MAX_OPERATORS);
+}
+
+#[test]
+fn add_operator_rejects_beyond_max_operators() {
+    let (env, admin, _, client) = setup();
+
+    // Fill the operator set to the cap.
+    for _ in 0..MAX_OPERATORS {
+        let op = Address::generate(&env);
+        client.add_operator(&admin, &op);
+    }
+
+    // The (MAX_OPERATORS + 1)th operator must be rejected.
+    let extra = Address::generate(&env);
+    let result = client.try_add_operator(&admin, &extra);
+    assert_eq!(result, Err(Ok(ContractError::OperatorSetFull)));
+
+    // The set must remain at the cap.
+    let ops = client.get_operators();
+    assert_eq!(ops.len(), MAX_OPERATORS);
+}
+
+#[test]
+fn remove_operator_frees_a_slot() {
+    let (env, admin, _, client) = setup();
+
+    // Fill the operator set to the cap, keeping the first operator for removal.
+    let first = Address::generate(&env);
+    client.add_operator(&admin, &first);
+    for _ in 1..MAX_OPERATORS {
+        let op = Address::generate(&env);
+        client.add_operator(&admin, &op);
+    }
+    assert_eq!(client.get_operators().len(), MAX_OPERATORS);
+
+    // Removing one operator frees a slot.
+    client.remove_operator(&admin, &first);
+    assert_eq!(client.get_operators().len(), MAX_OPERATORS - 1);
+
+    // A new operator can now be added.
+    let replacement = Address::generate(&env);
+    client.add_operator(&admin, &replacement);
+    assert_eq!(client.get_operators().len(), MAX_OPERATORS);
+}
+
+#[test]
+fn add_operator_emits_operator_added_event() {
+    let (env, admin, _, client) = setup();
+    let op = Address::generate(&env);
+
+    client.add_operator(&admin, &op);
+
+    let events = env.events().all();
+    let (_, topics, _) = events.last().unwrap();
+    let sym = Symbol::from_val(&env, &topics.get_unchecked(0));
+    assert_eq!(sym, Symbol::new(&env, "operator_added"));
+}
+
+#[test]
+fn add_operator_permitted_while_paused() {
+    let (env, admin, _, client) = setup();
+    let op = Address::generate(&env);
+
+    client.pause_with_reason(&admin, &symbol_short!("test"));
+
+    // Role management must work while paused.
+    assert!(client.try_add_operator(&admin, &op).is_ok());
+}
+
+#[test]
+fn add_operator_rejected_when_set_is_full() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let id = env.register_contract(None, ComplianceContract);
+    let client = ComplianceContractClient::new(&env, &id);
+    client.initialize(&admin);
+
+    // Fill the operator set to the maximum.
+    for _ in 0..MAX_OPERATORS {
+        let op = Address::generate(&env);
+        client.add_operator(&admin, &op);
+    }
+
+    // One more should fail.
+    let extra = Address::generate(&env);
+    let result = client.try_add_operator(&admin, &extra);
+    assert_eq!(result, Err(Ok(ContractError::OperatorSetFull)));
+}
+
+#[test]
+fn admin_and_operator_can_coexist_with_legacy_set_operator() {
+    let (env, admin, subject, client) = setup();
+    let legacy_op = Address::generate(&env);
+    let new_op = Address::generate(&env);
+
+    client.allow_address(&admin, &subject);
+
+    // Set the legacy single operator.
+    client.set_operator(&admin, &legacy_op);
+    // Add a new operator via the multi-operator API.
+    client.add_operator(&admin, &new_op);
+
+    // Both should be able to call address_status.
+    assert!(client.try_address_status(&legacy_op, &subject).is_ok());
+    assert!(client.try_address_status(&new_op, &subject).is_ok());
+}
+
+#[test]
+fn multiple_operators_all_rejected_from_admin_operations() {
+    let (env, admin, subject, client) = setup();
+    let mut operators: Vec<Address> = Vec::new(&env);
+    for _ in 0..3 {
+        let op = Address::generate(&env);
+        client.add_operator(&admin, &op);
+        operators.push_back(op);
+    }
+
+    // None of the operators should be able to perform admin-only mutations.
+    // (Placing blocks is delegated to operators by design; see #604.)
+    for op in operators.iter() {
+        assert_eq!(
+            client.try_allow_address(&op, &subject),
+            Err(Ok(ContractError::Unauthorized)),
+            "operator should not be able to call allow_address"
+        );
+    }
 }
 
 #[test]
@@ -286,27 +430,6 @@ fn multiple_operators_each_with_independent_access() {
         Err(Ok(ContractError::Unauthorized))
     );
     assert!(client.try_address_status(&op3, &subject).is_ok());
-}
-
-#[test]
-fn add_operator_rejected_when_set_is_full() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let admin = Address::generate(&env);
-    let id = env.register_contract(None, ComplianceContract);
-    let client = ComplianceContractClient::new(&env, &id);
-    client.initialize(&admin);
-
-    // Fill the operator set to the maximum.
-    for _ in 0..MAX_OPERATORS {
-        let op = Address::generate(&env);
-        client.add_operator(&admin, &op);
-    }
-
-    // One more should fail.
-    let extra = Address::generate(&env);
-    let result = client.try_add_operator(&admin, &extra);
-    assert_eq!(result, Err(Ok(ContractError::OperatorSetFull)));
 }
 
 #[test]
@@ -340,24 +463,6 @@ fn only_admin_can_remove_operator() {
 }
 
 #[test]
-fn admin_and_operator_can_coexist_with_legacy_set_operator() {
-    let (env, admin, subject, client) = setup();
-    let legacy_op = Address::generate(&env);
-    let new_op = Address::generate(&env);
-
-    client.allow_address(&admin, &subject);
-
-    // Set the legacy single operator.
-    client.set_operator(&admin, &legacy_op);
-    // Add a new operator via the multi-operator API.
-    client.add_operator(&admin, &new_op);
-
-    // Both should be able to call address_status.
-    assert!(client.try_address_status(&legacy_op, &subject).is_ok());
-    assert!(client.try_address_status(&new_op, &subject).is_ok());
-}
-
-#[test]
 fn operator_set_preserved_across_remove_and_re_add() {
     let (env, admin, subject, client) = setup();
     let op = Address::generate(&env);
@@ -377,19 +482,6 @@ fn operator_set_preserved_across_remove_and_re_add() {
 }
 
 #[test]
-fn add_operator_emits_operator_added_event() {
-    let (env, admin, _, client) = setup();
-    let op = Address::generate(&env);
-
-    client.add_operator(&admin, &op);
-
-    let events = env.events().all();
-    let (_, topics, _) = events.last().unwrap();
-    let sym = Symbol::from_val(&env, &topics.get_unchecked(0));
-    assert_eq!(sym, Symbol::new(&env, "operator_added"));
-}
-
-#[test]
 fn remove_operator_emits_operator_removed_event() {
     let (env, admin, _, client) = setup();
     let op = Address::generate(&env);
@@ -401,17 +493,6 @@ fn remove_operator_emits_operator_removed_event() {
     let (_, topics, _) = events.last().unwrap();
     let sym = Symbol::from_val(&env, &topics.get_unchecked(0));
     assert_eq!(sym, Symbol::new(&env, "operator_removed"));
-}
-
-#[test]
-fn add_operator_permitted_while_paused() {
-    let (env, admin, _, client) = setup();
-    let op = Address::generate(&env);
-
-    client.pause_with_reason(&admin, &symbol_short!("test"));
-
-    // Role management must work while paused.
-    assert!(client.try_add_operator(&admin, &op).is_ok());
 }
 
 #[test]
@@ -427,25 +508,4 @@ fn remove_operator_permitted_while_paused() {
 
     let ops = client.get_operators();
     assert_eq!(ops.len(), 0);
-}
-
-#[test]
-fn multiple_operators_all_rejected_from_admin_operations() {
-    let (env, admin, subject, client) = setup();
-    let mut operators: Vec<Address> = Vec::new(&env);
-    for _ in 0..3 {
-        let op = Address::generate(&env);
-        client.add_operator(&admin, &op);
-        operators.push_back(op);
-    }
-
-    // None of the operators should be able to perform admin-only mutations.
-    // (Placing blocks is delegated to operators by design; see #604.)
-    for op in operators.iter() {
-        assert_eq!(
-            client.try_allow_address(&op, &subject),
-            Err(Ok(ContractError::Unauthorized)),
-            "operator should not be able to call allow_address"
-        );
-    }
 }
