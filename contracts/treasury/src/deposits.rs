@@ -1,12 +1,11 @@
-use crate::{require_admin, require_not_paused, DataKey, TreasuryContract, TreasuryError};
+use crate::{
+    record_deposit_reference, require_admin, require_not_paused, DataKey, TreasuryContract,
+    TreasuryError,
+};
 #[allow(unused_imports)]
 use crate::{TreasuryContractArgs, TreasuryContractClient};
 use multisig::signer_weight;
 use soroban_sdk::{contractimpl, token, Address, Bytes, Env, Symbol, Vec};
-
-/// TTL (in ledgers) for which a deposit reference id is remembered for
-/// uniqueness enforcement. Roughly 30 days at 5s/ledger.
-const DEPOSIT_REFERENCE_TTL: u32 = 518_400;
 
 #[contractimpl]
 impl TreasuryContract {
@@ -14,9 +13,9 @@ impl TreasuryContract {
     /// An optional `reference` string can be supplied for off-chain reconciliation;
     /// it is included in the `deposit` event so finance systems can match deposits
     /// to invoices or external transfers automatically.
-    /// Reference ids must be unique within `DEPOSIT_REFERENCE_TTL` ledgers; reusing
-    /// a still-live reference id is rejected with `DuplicateReference`.
-    /// Errors: `ContractPaused`, `InvalidAmount`, `DuplicateReference`.
+    /// Reference ids must be unique within `DEPOSIT_REF_TTL_LEDGERS` ledgers; reusing
+    /// a still-live reference id is rejected with `DuplicateReferenceId`.
+    /// Errors: `ContractPaused`, `InvalidAmount`, `DuplicateReferenceId`.
     /// Emits: `deposit`.
     pub fn deposit(
         env: Env,
@@ -27,6 +26,9 @@ impl TreasuryContract {
     ) -> Result<(), TreasuryError> {
         require_not_paused(&env);
         from.require_auth();
+        if let Some(ref_id) = reference.as_ref() {
+            record_deposit_reference(&env, ref_id)?;
+        }
         deposit_one(&env, &from, &token_contract, amount, reference)
     }
 
@@ -34,8 +36,8 @@ impl TreasuryContract {
     /// An optional `reference` string is forwarded to every `deposit` event emitted
     /// by the batch, allowing the whole batch to be tagged with a single reconciliation id.
     /// The reference id is recorded once for the batch; reusing a still-live reference
-    /// id is rejected with `DuplicateReference`.
-    /// Errors: `ContractPaused`, `InvalidAmount`, `DuplicateReference`.
+    /// id is rejected with `DuplicateReferenceId`.
+    /// Errors: `ContractPaused`, `InvalidAmount`, `DuplicateReferenceId`.
     /// Emits: `deposit` for each deposited token.
     pub fn batch_deposit(
         env: Env,
@@ -49,7 +51,7 @@ impl TreasuryContract {
             record_deposit_reference(&env, &ref_id)?;
         }
         for (token_contract, amount) in deposits.iter() {
-            deposit_one(&env, &from, &token_contract, amount, None)?;
+            deposit_one(&env, &from, &token_contract, amount, reference.clone())?;
         }
         Ok(())
     }
@@ -282,6 +284,19 @@ fn deposit_one(
         &DataKey::Balance(from.clone(), token_contract.clone()),
         &balance,
     );
+    // Track the aggregate per-token depositor total so `remove_allowed_token`
+    // can refuse to strand balances (#742).
+    let total: i128 = env
+        .storage()
+        .persistent()
+        .get(&DataKey::TokenTotal(token_contract.clone()))
+        .unwrap_or(0);
+    let new_total = total
+        .checked_add(amount)
+        .ok_or(TreasuryError::ArithmeticOverflow)?;
+    env.storage()
+        .persistent()
+        .set(&DataKey::TokenTotal(token_contract.clone()), &new_total);
     // Include the optional reference in the event data so off-chain systems can
     // match deposits to invoices or external transfers without manual look-up.
     env.events().publish(

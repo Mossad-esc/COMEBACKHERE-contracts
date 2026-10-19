@@ -405,6 +405,7 @@ impl SettlementWorkflowContract {
     pub fn simulate_with_compliance(
         env: Env,
         settlement_id: u64,
+        _token_contract: Address,
         merchant: Address,
     ) -> SimulationResult {
         let paused: bool = env

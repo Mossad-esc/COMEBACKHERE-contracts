@@ -1,5 +1,5 @@
 #![no_std]
-use soroban_sdk::{contracterror, contracttype, Address, BytesN, Env, Vec};
+use soroban_sdk::{contracterror, contracttype, Address, Bytes, BytesN, Env, String, Vec};
 
 /// Error codes for all treasury contract operations. Variants are append-only
 /// and must never be renumbered, as discriminants are stored on-chain and
@@ -89,6 +89,16 @@ pub enum TreasuryError {
     // Appended for #732: a proposed timelock delay falls outside the admin-
     // configurable [MIN_TIMELOCK_DELAY_SECS, MAX_TIMELOCK_DELAY_SECS] bounds.
     InvalidTimelockDelay = 48,
+    // Appended for #747: a deposit reference id was reused within its TTL window.
+    DuplicateReferenceId = 49,
+    // Appended for #742: `remove_allowed_token` called while depositors still hold
+    // balances in that token.
+    //
+    // NOTE: Soroban caps a `#[contracterror]` enum at 50 cases, so this is the last
+    // free slot. New failure modes must reuse an existing variant (as #739, #741 and
+    // #744 do with `InvalidAmount`, `NoPendingAdmin` and `LabelTooLong`) or move to a
+    // second error type.
+    TokenHasBalance = 50,
 }
 
 // Issue #48: reason codes attached to a held settlement; None means not on hold
@@ -186,6 +196,8 @@ pub struct Dispute {
     /// none. Purely a verifiable pointer for signers/audits — never itself verified
     /// on-chain.
     pub evidence_hash: Option<BytesN<32>>,
+    /// Optional bounded rationale recorded when the dispute is resolved (#744).
+    pub resolution_memo: Option<String>,
 }
 
 /// Lifecycle state of a signer-rotation proposal.
@@ -328,6 +340,8 @@ pub enum DataKey {
     WithdrawalAllowlist,
     LastRotationProposal(Address),
     PartialApprovedTotal(u64),
+    /// Bounded per-merchant index of settlement IDs, newest last (#727).
+    MerchantSettlements(Address),
     /// Admin-configured max amount withdrawable per rolling window; `0` means uncapped (#455).
     WithdrawalLimitPerWindow,
     /// Window length (seconds) paired with `WithdrawalLimitPerWindow`.
@@ -352,6 +366,12 @@ pub enum DataKey {
     /// Stored separately from `Settlement` to avoid breaking the ABI snapshot.
     /// Absent means the hold has no expiry.
     HoldExpiry(u64),
+    /// Pending two-step admin handover: `(new_admin, expires_at)` (#741).
+    PendingAdmin,
+    /// Aggregate of all depositor balances held in a token (#742).
+    TokenTotal(Address),
+    /// Marker for a deposit reference id seen within its TTL window (#747).
+    DepositRef(Bytes),
     /// Ledger timestamp of a signer's most recent approval (#587).
     SignerLastActive(Address),
     /// Compact index of settlement ids currently in `Pending` status (#572), kept in

@@ -144,6 +144,7 @@ fn propose(
     };
     write_settlement(&env, id, &settlement);
     env.storage().instance().set(&DataKey::SettlementCount, &id);
+    push_merchant_settlement(&env, &settlement.merchant_address, id);
     env.events()
         .publish((Symbol::new(&env, "settlement_proposed"), id), settlement);
     Ok(id)
@@ -345,32 +346,6 @@ impl TreasuryContract {
     /// `Compliance::is_allowed` and is the recommended, compliance-checked entry point
     /// for executing a settlement (per ARCHITECTURE.md's description of
     /// SettlementWorkflow's role).
-    /// Executes multiple pending settlements in a single transaction.
-    /// Fails atomically: if any settlement cannot be executed, no settlements in the batch are executed.
-    /// Batch size is capped at 100 to stay within Soroban budget limits.
-    /// Panics: `ContractPaused`, `UnauthorizedSigner`.
-    /// Errors: `BatchTooLarge` or any error from execute_settlement.
-    /// Emits: one `settlement_executed` event per settlement executed.
-    pub fn batch_execute_settlements(
-        env: Env,
-        signer: Address,
-        settlement_data: Vec<(u64, Address)>,
-    ) -> Result<(), TreasuryError> {
-        const BATCH_MAX: u32 = 100;
-        if settlement_data.len() > BATCH_MAX {
-            return Err(TreasuryError::BatchTooLarge);
-        }
-
-        require_not_paused(&env);
-        require_authorized_signer(&env, &signer);
-
-        for (settlement_id, token_contract) in settlement_data.iter() {
-            Self::execute_settlement(env.clone(), signer.clone(), settlement_id, token_contract)?;
-        }
-
-        Ok(())
-    }
-
     pub fn execute_settlement(
         env: Env,
         signer: Address,
@@ -434,6 +409,8 @@ impl TreasuryContract {
         if !allowlist.is_empty() && !allowlist.contains(&token_contract) {
             return Err(TreasuryError::TokenNotAllowed);
         }
+        // #757: enforce the recipient's compliance tier limit before funds move.
+        crate::require_compliance_allowed(&env, &settlement.merchant_address, settlement.amount)?;
         let payout_address = env
             .storage()
             .instance()
@@ -524,6 +501,36 @@ impl TreasuryContract {
             // missing settlement IDs are silently skipped
         }
         executed
+    }
+
+    /// Read-only view of how far a partial settlement has progressed (#738).
+    /// Returns `(approved_total, executed_total, remaining)`: the tracked
+    /// `PartialApprovedTotal`, the `PartialExecutedTotal` already paid out, and
+    /// `approved_total - executed_total` saturating at zero.
+    /// Errors: `SettlementNotFound`.
+    pub fn get_partial_progress(
+        env: Env,
+        settlement_id: u64,
+    ) -> Result<(i128, i128, i128), TreasuryError> {
+        if !env
+            .storage()
+            .persistent()
+            .has(&DataKey::Settlement(settlement_id))
+        {
+            return Err(TreasuryError::SettlementNotFound);
+        }
+        let approved: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::PartialApprovedTotal(settlement_id))
+            .unwrap_or(0);
+        let executed: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::PartialExecutedTotal(settlement_id))
+            .unwrap_or(0);
+        let remaining = if approved > executed { approved - executed } else { 0 };
+        Ok((approved, executed, remaining))
     }
 
     /// Transfers `partial_amount` tokens to the merchant and marks the settlement as `PartiallyExecuted`.
@@ -940,6 +947,16 @@ impl TreasuryContract {
         if allowlist.contains(&token) && has_pending_settlement(&env) {
             soroban_sdk::panic_with_error!(env, TreasuryError::TokenHasPendingSettlements);
         }
+        // #742: refuse to remove a token while depositors still hold balances in it,
+        // which would hide those balances from `get_all_balances`.
+        let token_total: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::TokenTotal(token.clone()))
+            .unwrap_or(0);
+        if allowlist.contains(&token) && token_total > 0 {
+            soroban_sdk::panic_with_error!(env, TreasuryError::TokenHasBalance);
+        }
         let mut updated = Vec::new(&env);
         for t in allowlist.iter() {
             if t != token {
@@ -1022,13 +1039,21 @@ impl TreasuryContract {
 }
 
 /// Whether a settlement's approvals should still be considered active, i.e. the settlement is
-/// still `Pending` and hasn't passed `SETTLEMENT_TTL` since it was proposed. Mirrors the
+/// still `Pending` and hasn't passed the settlement expiry window since it was proposed. Mirrors the
 /// `expire_settlement` TTL check so approvals on an effectively-expired settlement read as
 /// stale even before `expire_settlement` is actually called (see #728).
 fn approval_is_active(env: &Env, settlement: &Settlement) -> bool {
+    let expiry_secs: u64 = env
+        .storage()
+        .instance()
+        .get(&DataKey::SettlementExpirySecs)
+        .unwrap_or(7u64 * 24 * 60 * 60);
     settlement.status == SettlementStatus::Pending
-        && env.ledger().timestamp() <= settlement.proposed_at + SETTLEMENT_TTL
+        && env.ledger().timestamp() <= settlement.proposed_at.saturating_add(expiry_secs)
 }
+
+/// Maximum number of settlement IDs kept in a merchant's settlement index (#727).
+pub(crate) const MAX_MERCHANT_SETTLEMENTS: u32 = 50;
 
 /// Appends `settlement_id` to `merchant`'s bounded settlement index, dropping the oldest entry
 /// first if the index is already at `MAX_MERCHANT_SETTLEMENTS` (see #727).

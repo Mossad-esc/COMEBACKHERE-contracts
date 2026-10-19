@@ -1,6 +1,6 @@
 // Issue #699: permissionless keeper that turns due templates into invoices.
 use invoice::{
-    InvoiceContract, InvoiceContractClient, InvoiceError, InvoiceStatus, MaybeBytes,
+    InvoiceContract, InvoiceContractClient, InvoiceError, InvoiceStatus, MaybeAddress, MaybeBytes,
     RecurrenceInterval, TEMPLATE_KEEPER_BATCH_SIZE,
 };
 use soroban_sdk::{
@@ -226,7 +226,7 @@ fn generated_invoices_are_ordinary_invoices() {
     client.generate_due_invoices(&vec![&env, id]);
 
     let payer = Address::generate(&env);
-    client.mark_paid(&admin, &1, &payer);
+    client.mark_paid(&admin, &1, &payer, &MaybeBytes::None, &MaybeAddress::None);
     client.release_escrow(&admin, &1);
 
     let invoice = client.get_invoice(&1);

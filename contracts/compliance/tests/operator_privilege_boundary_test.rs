@@ -290,7 +290,7 @@ fn add_operator_rejects_beyond_max_operators() {
     // The (MAX_OPERATORS + 1)th operator must be rejected.
     let extra = Address::generate(&env);
     let result = client.try_add_operator(&admin, &extra);
-    assert_eq!(result, Err(Ok(ContractError::OperatorLimitReached)));
+    assert_eq!(result, Err(Ok(ContractError::OperatorSetFull)));
 
     // The set must remain at the cap.
     let ops = client.get_operators();

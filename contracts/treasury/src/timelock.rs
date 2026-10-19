@@ -37,7 +37,7 @@
 
 use crate::{
     require_admin, DataKey, SignerChangeKind, SignerChangeProposal, SignerChangeStatus,
-    TreasuryContract, TreasuryError,
+    TreasuryContract, TreasuryContractArgs, TreasuryContractClient, TreasuryError,
 };
 use soroban_sdk::{contractimpl, Address, Env, Symbol, Vec};
 

@@ -72,5 +72,8 @@ declare_contract_error! {
         // Appended for #694: generate_from_template was called on a template
         // that has been deactivated.
         TemplateDisabled = 34,
+        // Appended for #704: set_late_fee_bps called with more than 10_000 bps
+        // (100% of the net amount).
+        InvalidLateFee = 35,
     }
 }

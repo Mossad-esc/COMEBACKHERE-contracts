@@ -546,6 +546,20 @@ impl ComplianceContract {
         env.storage().instance().get(&DataKey::TierLimit(tier))
     }
 
+    /// Returns `true` when `address` is allowed (see [`Self::is_allowed`]) **and**
+    /// `amount` is within the transaction limit of its tier (#756). A tier with no
+    /// configured limit is unlimited.
+    pub fn is_allowed_for_amount(env: Env, address: Address, amount: i128) -> bool {
+        if !Self::is_allowed_at(&env, &address, env.ledger().timestamp()) {
+            return false;
+        }
+        let tier = Self::get_address_tier(env.clone(), address);
+        match Self::get_tier_limit(env, tier) {
+            Some(limit) => amount <= limit,
+            None => true,
+        }
+    }
+
     /// Set the jurisdiction code for an address.
     ///
     /// Stores an ISO country code (e.g., `US`, `EU`, `JP`) per address for

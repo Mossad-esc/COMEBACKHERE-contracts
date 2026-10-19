@@ -8,7 +8,7 @@
 
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{Address, Env, Vec};
-use treasury::{TreasuryContract, TreasuryContractClient};
+use treasury::{MaybeAddress, TreasuryContract, TreasuryContractClient};
 
 const NUM_TOKENS: u32 = 10;
 const NUM_SETTLEMENTS: u32 = 100;
@@ -23,15 +23,15 @@ fn setup(env: &Env) -> (TreasuryContractClient<'_>, Vec<Address>) {
     let signer = Address::generate(env);
 
     let mut signers = Vec::new(env);
-    signers.push_back(signer.clone());
+    signers.push_back((signer.clone(), 1u32));
 
-    client.initialize(&admin, &signers, &1u32);
+    client.initialize(&admin, &1u32, &signers);
 
     // Allowlist NUM_TOKENS distinct tokens.
     let mut tokens = Vec::new(env);
     for _ in 0..NUM_TOKENS {
         let token = Address::generate(env);
-        client.allow_token(&admin, &token);
+        client.add_allowed_token(&admin, &token);
         tokens.push_back(token);
     }
 
@@ -39,7 +39,12 @@ fn setup(env: &Env) -> (TreasuryContractClient<'_>, Vec<Address>) {
     for i in 0..NUM_SETTLEMENTS {
         let token = tokens.get(i % NUM_TOKENS).unwrap();
         let recipient = Address::generate(env);
-        client.propose_settlement(&signer, &token, &recipient, &1_000i128);
+        client.propose_settlement_with_token(
+            &signer,
+            &recipient,
+            &1_000i128,
+            &MaybeAddress::Some(token),
+        );
     }
 
     (client, tokens)
@@ -59,7 +64,9 @@ fn pending_metrics_budget_many_tokens_and_settlements() {
     let mem = env.budget().memory_bytes_cost();
 
     // Sanity: the aggregation must have observed every pending settlement.
-    assert_eq!(metrics.pending_count, NUM_SETTLEMENTS);
+    let pending_count: u64 = metrics.iter().map(|(_, count, _)| count).sum();
+    assert_eq!(pending_count, NUM_SETTLEMENTS as u64);
+    assert_eq!(metrics.len(), NUM_TOKENS);
 
     // Record the measured numbers for the PR / docs cross-reference.
     std::println!(

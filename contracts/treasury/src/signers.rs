@@ -1,6 +1,6 @@
 use crate::{
     require_admin, DataKey, RotationStatus, SignerRotationProposal, TreasuryContract,
-    TreasuryError,
+    TreasuryContractArgs, TreasuryContractClient, TreasuryError,
 };
 use multisig::{meets_threshold, record_approval, require_authorized_signer, signer_weight};
 use soroban_sdk::{contractimpl, Address, Env, String, Symbol, Vec};
@@ -27,7 +27,7 @@ impl TreasuryContract {
     ) -> Result<(), TreasuryError> {
         require_admin(&env, &admin);
         if weight == 0 {
-            return Err(TreasuryError::ZeroSignerWeight);
+            return Err(TreasuryError::InvalidAmount);
         }
         env.storage()
             .instance()

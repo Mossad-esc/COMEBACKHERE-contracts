@@ -137,6 +137,9 @@ impl InvoiceContract {
     /// Admin-only. Pass 0 to disable the late fee (default).
     pub fn set_late_fee_bps(env: Env, admin: Address, bps: u32) -> Result<(), InvoiceError> {
         require_admin(&env, &admin)?;
+        if bps > crate::refund::BPS_DENOMINATOR {
+            return Err(InvoiceError::InvalidLateFee);
+        }
         let old_bps: u32 = env.storage().instance().get(&DataKey::LateFee).unwrap_or(0);
         env.storage().instance().set(&DataKey::LateFee, &bps);
         // #704: make late-fee changes visible to indexers.

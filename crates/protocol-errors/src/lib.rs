@@ -98,6 +98,7 @@ fn invoice_description(e: InvoiceError) -> &'static str {
         RefundWindowClosed => "The refund window for this invoice has closed.",
         SelfPayNotAllowed => "A merchant cannot pay its own invoice.",
         TemplateDisabled => "The invoice template is disabled.",
+        InvalidLateFee => "The late fee exceeds 100%.",
     }
 }
 
@@ -151,6 +152,9 @@ fn treasury_description(e: TreasuryError) -> &'static str {
         DuplicateVote => "The signer has already voted on this dispute.",
         NoPendingAdmin => "There is no pending admin transfer.",
         LabelTooLong => "The signer label is too long.",
+        InvalidTimelockDelay => "The timelock delay is outside the allowed bounds.",
+        DuplicateReferenceId => "This deposit reference id was already used recently.",
+        TokenHasBalance => "The token still has depositor balances and cannot be removed.",
     }
 }
 

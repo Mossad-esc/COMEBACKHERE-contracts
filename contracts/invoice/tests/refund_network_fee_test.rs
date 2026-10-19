@@ -1,7 +1,7 @@
 //! Tests for #701: admin-configurable refund network fee.
 //!
 //! Verifies:
-//! * Default fee equals DEFAULT_REFUND_NETWORK_FEE when unset.
+//! * Default fee equals REFUND_NETWORK_FEE when unset.
 //! * Admin can update the fee within bounds.
 //! * A `refund_network_fee_updated` event is emitted on change.
 //! * Fees above MAX_REFUND_NETWORK_FEE are rejected.
@@ -9,7 +9,7 @@
 //! * Non-admin callers are rejected.
 
 use invoice::{
-    InvoiceContract, InvoiceContractClient, InvoiceError, DEFAULT_REFUND_NETWORK_FEE,
+    InvoiceContract, InvoiceContractClient, InvoiceError, REFUND_NETWORK_FEE,
     MAX_REFUND_NETWORK_FEE,
 };
 use soroban_sdk::{testutils::Address as _, Address, Env};
@@ -29,7 +29,7 @@ fn setup() -> (Env, Address, InvoiceContractClient<'static>) {
 #[test]
 fn test_get_refund_network_fee_returns_default_when_unset() {
     let (_env, _admin, client) = setup();
-    assert_eq!(client.get_refund_network_fee(), DEFAULT_REFUND_NETWORK_FEE);
+    assert_eq!(client.get_refund_network_fee(), REFUND_NETWORK_FEE);
 }
 
 #[test]
@@ -103,7 +103,7 @@ fn test_set_refund_network_fee_emits_event() {
         Symbol::new(&env, "refund_network_fee_updated")
     );
     let payload = RefundNetworkFeeUpdatedEvent::try_from_val(&env, &data).unwrap();
-    assert_eq!(payload.old_fee, DEFAULT_REFUND_NETWORK_FEE);
+    assert_eq!(payload.old_fee, REFUND_NETWORK_FEE);
     assert_eq!(payload.new_fee, new_fee);
 }
 

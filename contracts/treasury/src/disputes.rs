@@ -19,7 +19,7 @@ pub const MAX_RESOLUTION_MEMO_LEN: u32 = 256;
 fn validate_resolution_memo(memo: &Option<soroban_sdk::String>) -> Result<(), TreasuryError> {
     if let Some(m) = memo {
         if m.len() > MAX_RESOLUTION_MEMO_LEN {
-            return Err(TreasuryError::InvalidResolutionMemo);
+            return Err(TreasuryError::LabelTooLong);
         }
     }
     Ok(())

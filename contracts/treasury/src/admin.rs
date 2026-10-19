@@ -152,7 +152,7 @@ impl TreasuryContract {
     /// Proposes a new admin for a two-step handover (admin-only, #741).
     /// The proposal must be accepted by `new_admin` via `accept_admin` before
     /// `expiry_secs` elapse, otherwise it expires and can be re-proposed.
-    /// Errors: `AdminTransferPending` if a live proposal already exists.
+    /// A new proposal supersedes any pending one.
     /// Emits: `admin_transfer_proposed`.
     pub fn transfer_admin(
         env: Env,
@@ -161,11 +161,9 @@ impl TreasuryContract {
         expiry_secs: u64,
     ) -> Result<(), TreasuryError> {
         require_admin(&env, &admin);
-        if let Some((_, expires_at)) = Self::get_pending_admin(env.clone()) {
-            if env.ledger().timestamp() < expires_at {
-                return Err(TreasuryError::AdminTransferPending);
-            }
-        }
+        // A new proposal supersedes any pending one (a plain overwrite, as in the
+        // settlement workflow's `transfer_admin`), so a mistyped or lost nominee
+        // never blocks the handover until expiry.
         let expires_at = env.ledger().timestamp().saturating_add(expiry_secs);
         env.storage()
             .instance()
@@ -178,7 +176,7 @@ impl TreasuryContract {
     }
 
     /// Accepts a pending admin transfer (callable only by the proposed admin, #741).
-    /// Errors: `NoPendingAdmin` if none exists, `AdminTransferExpired` if past expiry,
+    /// Errors: `NoPendingAdmin` if none exists or it has expired,
     /// `Unauthorized` if the caller is not the proposed admin.
     /// Emits: `admin_transferred`.
     pub fn accept_admin(env: Env, new_admin: Address) -> Result<(), TreasuryError> {
@@ -186,7 +184,7 @@ impl TreasuryContract {
             .ok_or(TreasuryError::NoPendingAdmin)?;
         if env.ledger().timestamp() >= expires_at {
             env.storage().instance().remove(&DataKey::PendingAdmin);
-            return Err(TreasuryError::AdminTransferExpired);
+            return Err(TreasuryError::NoPendingAdmin);
         }
         new_admin.require_auth();
         if pending != new_admin {
