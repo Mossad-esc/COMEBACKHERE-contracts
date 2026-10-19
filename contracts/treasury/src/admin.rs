@@ -127,4 +127,80 @@ impl TreasuryContract {
     pub fn get_compliance_id(env: Env) -> Option<Address> {
         env.storage().instance().get(&DataKey::ComplianceId)
     }
+
+    /// Proposes a new admin for a two-step handover (admin-only, #741).
+    /// The proposal must be accepted by `new_admin` via `accept_admin` before
+    /// `expiry_secs` elapse, otherwise it expires and can be re-proposed.
+    /// Errors: `AdminTransferPending` if a live proposal already exists.
+    /// Emits: `admin_transfer_proposed`.
+    pub fn transfer_admin(
+        env: Env,
+        admin: Address,
+        new_admin: Address,
+        expiry_secs: u64,
+    ) -> Result<(), TreasuryError> {
+        require_admin(&env, &admin);
+        if let Some((_, expires_at)) = Self::get_pending_admin(env.clone()) {
+            if env.ledger().timestamp() < expires_at {
+                return Err(TreasuryError::AdminTransferPending);
+            }
+        }
+        let expires_at = env.ledger().timestamp().saturating_add(expiry_secs);
+        env.storage()
+            .instance()
+            .set(&DataKey::PendingAdmin, &(new_admin.clone(), expires_at));
+        env.events().publish(
+            (Symbol::new(&env, "admin_transfer_proposed"),),
+            (new_admin, expires_at),
+        );
+        Ok(())
+    }
+
+    /// Accepts a pending admin transfer (callable only by the proposed admin, #741).
+    /// Errors: `NoPendingAdmin` if none exists, `AdminTransferExpired` if past expiry,
+    /// `Unauthorized` if the caller is not the proposed admin.
+    /// Emits: `admin_transferred`.
+    pub fn accept_admin(env: Env, new_admin: Address) -> Result<(), TreasuryError> {
+        let (pending, expires_at) = Self::get_pending_admin(env.clone())
+            .ok_or(TreasuryError::NoPendingAdmin)?;
+        if env.ledger().timestamp() >= expires_at {
+            env.storage().instance().remove(&DataKey::PendingAdmin);
+            return Err(TreasuryError::AdminTransferExpired);
+        }
+        new_admin.require_auth();
+        if pending != new_admin {
+            return Err(TreasuryError::Unauthorized);
+        }
+        env.storage().instance().set(&DataKey::Admin, &new_admin);
+        env.storage().instance().remove(&DataKey::PendingAdmin);
+        env.events()
+            .publish((Symbol::new(&env, "admin_transferred"),), new_admin);
+        Ok(())
+    }
+
+    /// Cancels a pending admin transfer (admin-only, #741).
+    /// Errors: `NoPendingAdmin` if none exists.
+    /// Emits: `admin_transfer_cancelled`.
+    pub fn cancel_transfer_admin(env: Env, admin: Address) -> Result<(), TreasuryError> {
+        require_admin(&env, &admin);
+        if Self::get_pending_admin(env.clone()).is_none() {
+            return Err(TreasuryError::NoPendingAdmin);
+        }
+        env.storage().instance().remove(&DataKey::PendingAdmin);
+        env.events()
+            .publish((Symbol::new(&env, "admin_transfer_cancelled"),), admin);
+        Ok(())
+    }
+
+    /// Returns the pending `(new_admin, expires_at)` proposal, or `None` if there is
+    /// no live proposal (expired proposals are treated as absent).
+    pub fn get_pending_admin(env: Env) -> Option<(Address, u64)> {
+        let pending: Option<(Address, u64)> = env.storage().instance().get(&DataKey::PendingAdmin);
+        match pending {
+            Some((new_admin, expires_at)) if env.ledger().timestamp() < expires_at => {
+                Some((new_admin, expires_at))
+            }
+            _ => None,
+        }
+    }
 }
