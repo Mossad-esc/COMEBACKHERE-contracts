@@ -109,3 +109,16 @@ deploy:
 
 # Default target
 default: check
+
+# Test a single contract by short name (invoice, treasury, compliance, workflow)
+test-contract name:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "{{name}}" in
+      invoice) pkg=comebackhere-invoice ;;
+      treasury) pkg=comebackhere-treasury ;;
+      compliance) pkg=comebackhere-compliance ;;
+      workflow) pkg=comebackhere-settlement-workflow ;;
+      *) pkg="{{name}}" ;;
+    esac
+    cargo test -p "$pkg"
