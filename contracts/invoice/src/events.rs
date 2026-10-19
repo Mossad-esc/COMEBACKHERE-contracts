@@ -14,6 +14,7 @@
 // - Optional types (Option<u64>) serialize to null or value
 
 use crate::invoice::{Invoice, MaybeAddress};
+use crate::template::InvoiceTemplate;
 use crate::refund::NetRefund;
 use soroban_sdk::{contracttype, Address, Env, Symbol};
 
@@ -250,4 +251,34 @@ mod tests {
             Symbol::new(&env, "invoice_expiry_extended")
         );
     }
+}
+
+/// The admin changed the late fee: data is `(old_bps, new_bps)` (#704).
+pub fn late_fee_updated(env: &Env, old_bps: u32, new_bps: u32) {
+    env.events()
+        .publish((Symbol::new(env, "late_fee_updated"),), (old_bps, new_bps));
+}
+
+/// A recurring invoice template was registered (#698).
+pub fn template_created(env: &Env, id: u64, template: &InvoiceTemplate) {
+    env.events()
+        .publish((Symbol::new(env, "template_created"), id), template.clone());
+}
+
+/// A template was activated or deactivated: data is the new `active` flag.
+pub fn template_activated(env: &Env, id: u64, active: bool) {
+    env.events()
+        .publish((Symbol::new(env, "template_activated"), id), active);
+}
+
+/// The keeper generated an invoice: topics are the template id and invoice id (#699).
+pub fn template_generated(env: &Env, template_id: u64, invoice_id: u64) {
+    env.events().publish(
+        (
+            Symbol::new(env, "template_generated"),
+            template_id,
+            invoice_id,
+        ),
+        (),
+    );
 }

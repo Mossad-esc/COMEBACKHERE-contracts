@@ -333,6 +333,12 @@ pub enum DataKey {
     /// Admin-tunable late-fee rate in basis points (1 bps = 0.01%).
     /// Applied to overdue invoices at the discretion of the settlement layer.
     LateFee,
+    /// Recurring invoice template store: Template(id) → InvoiceTemplate (#698).
+    Template(u64),
+    /// Monotonic template id counter (#698).
+    TemplateCount,
+    /// Per-merchant template index in creation order (#698).
+    MerchantTemplates(Address),
     /// Admin-configured window (seconds) after payment within which a payer
     /// may call request_refund. Zero means no limit (current behaviour).
     RefundWindow,

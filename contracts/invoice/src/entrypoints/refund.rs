@@ -2,21 +2,18 @@
 //! readability (#719). No ABI change: soroban-sdk merges every submodule's
 //! `#[contractimpl]` block into a single generated client.
 
-use crate::events::{self, InvoiceAmountUpdatedEvent};
+use crate::events;
 use crate::invoice::{MaybeU64, RefundStatus};
 use crate::refund::{
     calculate_net_refund, refund_recipient, transfer_net_refund, verify_payment_state,
 };
-use crate::validation::{
-    require_admin, require_expiry_not_too_long, require_hash_not_too_long, require_not_paused,
-    require_positive_amount, require_usdc_precision, require_valid_payment_link_hash,
-};
-use crate::{append_history, pending_index_add, pending_index_remove};
+use crate::validation::{require_admin, require_not_paused};
+use crate::append_history;
 use crate::{
     DataKey, Invoice, InvoiceContract, InvoiceContractArgs, InvoiceContractClient, InvoiceError,
-    InvoiceStatus, MaybeAddress, MaybeBytes, NetRefund,
+    InvoiceStatus, MaybeAddress, NetRefund,
 };
-use soroban_sdk::{contractimpl, Address, Env, Vec};
+use soroban_sdk::{contractimpl, Address, Env};
 
 #[contractimpl]
 impl InvoiceContract {

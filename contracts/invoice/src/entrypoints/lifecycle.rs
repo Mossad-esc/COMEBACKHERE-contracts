@@ -1,8 +1,4 @@
 use crate::events::{self, InvoiceAmountUpdatedEvent};
-use crate::invoice::{MaybeU64, RefundStatus};
-use crate::refund::{
-    calculate_net_refund, refund_recipient, transfer_net_refund, verify_payment_state,
-};
 use crate::validation::{
     require_admin, require_expiry_not_too_long, require_hash_not_too_long, require_not_paused,
     require_payer_not_merchant, require_positive_amount, require_usdc_precision, require_valid_payment_link_hash,
@@ -10,7 +6,7 @@ use crate::validation::{
 use crate::{append_history, payer_index_add, pending_index_add, pending_index_remove};
 use crate::{
     DataKey, Invoice, InvoiceContract, InvoiceContractArgs, InvoiceContractClient, InvoiceError,
-    InvoiceStatus, InvoiceSummary, MaybeAddress, MaybeBytes, NetRefund, MAX_PAGE_LIMIT,
+    InvoiceStatus, InvoiceSummary, MaybeAddress, MaybeBytes, MAX_PAGE_LIMIT,
 };
 use soroban_sdk::{contractimpl, Address, Env, Vec};
 
@@ -56,62 +52,17 @@ impl InvoiceContract {
             }
         }
 
-        let count: u64 = env
-            .storage()
-            .instance()
-            .get(&DataKey::InvoiceCount)
-            .unwrap_or(0);
-        let id = count
-            .checked_add(1)
-            .ok_or(InvoiceError::InvoiceCountOverflow)?;
-        let expires_at = env
-            .ledger()
-            .timestamp()
-            .checked_add(expires_in_seconds)
-            .ok_or(InvoiceError::ExpiryOverflow)?;
-        if merchant_nonce != 0 {
-            env.storage().persistent().set(
-                &DataKey::MerchantNonce(merchant.clone(), merchant_nonce),
-                &true,
-            );
-        }
-        let invoice = Invoice {
-            id,
-            merchant: merchant.clone(),
+        create_invoice_record(
+            &env,
+            &merchant,
             amount_usdc,
             gross_usdc,
-            status: InvoiceStatus::Pending,
-            expires_at,
-            paid_at: None,
-            payer: MaybeAddress::None,
+            expires_in_seconds,
             metadata_hash,
             payment_link_hash,
             merchant_nonce,
             token_address,
-        };
-
-        env.storage()
-            .persistent()
-            .set(&DataKey::Invoice(id), &invoice);
-        env.storage().instance().set(&DataKey::InvoiceCount, &id);
-
-        let merchant_count_key = DataKey::MerchantInvoiceCount(merchant.clone());
-        let merchant_count: u64 = env
-            .storage()
-            .persistent()
-            .get(&merchant_count_key)
-            .unwrap_or(0);
-        env.storage().persistent().set(
-            &DataKey::MerchantInvoiceIndex(merchant.clone(), merchant_count),
-            &id,
-        );
-        env.storage()
-            .persistent()
-            .set(&merchant_count_key, &(merchant_count + 1));
-
-        pending_index_add(&env, id);
-        events::invoice_created(&env, id, &invoice);
-        Ok(id)
+        )
     }
 
     pub fn mark_paid(
@@ -441,4 +392,79 @@ impl InvoiceContract {
         }
         page
     }
+}
+
+/// Writes a new `Pending` invoice and returns its id: id allocation, nonce
+/// recording, merchant index and pending index. Performs no authorization or
+/// parameter validation — callers either validate and authenticate the
+/// merchant themselves (`create_invoice`) or are the permissionless template
+/// keeper acting on an already-authorized, already-validated template (#699).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn create_invoice_record(
+    env: &Env,
+    merchant: &Address,
+    amount_usdc: i128,
+    gross_usdc: i128,
+    expires_in_seconds: u64,
+    metadata_hash: MaybeBytes,
+    payment_link_hash: MaybeBytes,
+    merchant_nonce: u64,
+    token_address: MaybeAddress,
+) -> Result<u64, InvoiceError> {
+    let count: u64 = env
+        .storage()
+        .instance()
+        .get(&DataKey::InvoiceCount)
+        .unwrap_or(0);
+    let id = count
+        .checked_add(1)
+        .ok_or(InvoiceError::InvoiceCountOverflow)?;
+    let expires_at = env
+        .ledger()
+        .timestamp()
+        .checked_add(expires_in_seconds)
+        .ok_or(InvoiceError::ExpiryOverflow)?;
+    if merchant_nonce != 0 {
+        env.storage().persistent().set(
+            &DataKey::MerchantNonce(merchant.clone(), merchant_nonce),
+            &true,
+        );
+    }
+    let invoice = Invoice {
+        id,
+        merchant: merchant.clone(),
+        amount_usdc,
+        gross_usdc,
+        status: InvoiceStatus::Pending,
+        expires_at,
+        paid_at: None,
+        payer: MaybeAddress::None,
+        metadata_hash,
+        payment_link_hash,
+        merchant_nonce,
+        token_address,
+    };
+
+    env.storage()
+        .persistent()
+        .set(&DataKey::Invoice(id), &invoice);
+    env.storage().instance().set(&DataKey::InvoiceCount, &id);
+
+    let merchant_count_key = DataKey::MerchantInvoiceCount(merchant.clone());
+    let merchant_count: u64 = env
+        .storage()
+        .persistent()
+        .get(&merchant_count_key)
+        .unwrap_or(0);
+    env.storage().persistent().set(
+        &DataKey::MerchantInvoiceIndex(merchant.clone(), merchant_count),
+        &id,
+    );
+    env.storage()
+        .persistent()
+        .set(&merchant_count_key, &(merchant_count + 1));
+
+    pending_index_add(env, id);
+    events::invoice_created(env, id, &invoice);
+    Ok(id)
 }

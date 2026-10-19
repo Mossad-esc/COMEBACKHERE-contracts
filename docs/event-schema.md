@@ -45,6 +45,10 @@ all entrypoints in `contracts/invoice/src/entrypoints/` call through these helpe
 | `invoice_refund_requested` | `(Symbol, id: u64)` | `Invoice` | `request_refund` |
 | `refund_approved` | `(Symbol, id: u64)` | `Invoice` | `approve_refund` |
 | `refund_rejected` | `(Symbol, id: u64)` | `Invoice` | `reject_refund` |
+| `template_created` | `(Symbol, template_id: u64)` | `InvoiceTemplate` | `create_template` |
+| `template_activated` | `(Symbol, template_id: u64)` | `bool` (new `active` flag) | `set_template_active` |
+| `template_generated` | `(Symbol, template_id: u64, invoice_id: u64)` | `()` | `generate_due_invoices` |
+| `late_fee_updated` | `(Symbol,)` | `(old_bps: u32, new_bps: u32)` | `set_late_fee_bps` |
 | `escrow_released` | `(Symbol, id: u64)` | `EscrowReleasedEvent` | `release_escrow` |
 | `contract_paused` | `(Symbol,)` | `Address` (admin) | `pause` |
 | `contract_unpaused` | `(Symbol,)` | `Address` (admin) | `unpause` |

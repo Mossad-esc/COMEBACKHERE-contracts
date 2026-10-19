@@ -10,6 +10,7 @@ mod entrypoints;
 mod events;
 mod invoice;
 mod refund;
+mod template;
 mod validation;
 
 pub use events::{
@@ -25,6 +26,9 @@ pub use invoice::{
 pub use refund::{
     calculate_net_refund, refund_recipient, transfer_net_refund, verify_payment_state, NetRefund,
     BPS_DENOMINATOR, MAX_REFUND_FEE_BPS, REFUND_NETWORK_FEE,
+};
+pub use template::{
+    InvoiceTemplate, RecurrenceInterval, TEMPLATE_KEEPER_BATCH_SIZE, TEMPLATE_PAGE_LIMIT,
 };
 pub use validation::require_valid_discount;
 pub use validation::{require_memo_not_too_long, MAX_MEMO_BYTES};
