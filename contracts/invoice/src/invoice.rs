@@ -339,6 +339,9 @@ pub enum DataKey {
     TemplateCount,
     /// Per-merchant template index in creation order (#698).
     MerchantTemplates(Address),
+    /// Admin-configurable refund network fee in stroops (#701). Defaults to
+    /// `REFUND_NETWORK_FEE` when unset.
+    RefundNetworkFee,
     /// Admin-configured window (seconds) after payment within which a payer
     /// may call request_refund. Zero means no limit (current behaviour).
     RefundWindow,

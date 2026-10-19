@@ -149,6 +149,53 @@ impl InvoiceContract {
         Ok(())
     }
 
+    /// Generate an invoice from an active template on demand, outside its
+    /// recurrence schedule (#694). The owning merchant must authorise the call.
+    /// Does not advance `next_run_at`: the keeper's schedule is unaffected.
+    /// Returns the new invoice ID.
+    /// Errors: `ContractPaused`, `NotFound`, `Unauthorized`, `TemplateDisabled`.
+    /// Emits: `template_generated`.
+    pub fn generate_from_template(
+        env: Env,
+        merchant: Address,
+        template_id: u64,
+    ) -> Result<u64, InvoiceError> {
+        merchant.require_auth();
+        require_not_paused(&env)?;
+        let template: InvoiceTemplate = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Template(template_id))
+            .ok_or(InvoiceError::NotFound)?;
+        if template.merchant != merchant {
+            return Err(InvoiceError::Unauthorized);
+        }
+        if !template.active {
+            return Err(InvoiceError::TemplateDisabled);
+        }
+        let invoice_id = create_invoice_record(
+            &env,
+            &template.merchant,
+            template.amount_usdc,
+            template.gross_usdc,
+            template.expires_in_seconds,
+            template.metadata_hash,
+            template.payment_link_hash,
+            0,
+            MaybeAddress::None,
+        )?;
+        events::template_generated(&env, template_id, invoice_id);
+        Ok(invoice_id)
+    }
+
+    /// Return the total number of templates created.
+    pub fn get_template_count(env: Env) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKey::TemplateCount)
+            .unwrap_or(0)
+    }
+
     /// Permissionless keeper call: create one invoice for each due template in
     /// `template_ids` and advance its schedule past `now`. Unknown, inactive and
     /// not-yet-due templates are skipped, so a period can never be invoiced twice.

@@ -282,3 +282,38 @@ pub fn template_generated(env: &Env, template_id: u64, invoice_id: u64) {
         (),
     );
 }
+
+/// Emitted when the admin changes the refund network fee (#701).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RefundNetworkFeeUpdatedEvent {
+    pub old_fee: i128,
+    pub new_fee: i128,
+}
+
+pub fn refund_network_fee_updated(env: &Env, old_fee: i128, new_fee: i128) {
+    env.events().publish(
+        (Symbol::new(env, "refund_network_fee_updated"),),
+        RefundNetworkFeeUpdatedEvent { old_fee, new_fee },
+    );
+}
+
+/// Emitted when the payer of a paid invoice transfers it to a new payer.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InvoiceTransferredEvent {
+    pub id: u64,
+    pub from: Address,
+    pub to: Address,
+}
+
+pub fn invoice_transferred(env: &Env, id: u64, from: &Address, to: &Address) {
+    env.events().publish(
+        (Symbol::new(env, "invoice_transferred"), id),
+        InvoiceTransferredEvent {
+            id,
+            from: from.clone(),
+            to: to.clone(),
+        },
+    );
+}

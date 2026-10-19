@@ -15,7 +15,7 @@ mod validation;
 
 pub use events::{
     EscrowReleasedEvent, GraceWindowUpdatedEvent, InvoiceAmountUpdatedEvent,
-    InvoiceCreatedEvent, InvoiceExpiryExtendedEvent, MaxOpenInvoicesUpdatedEvent, MerchantMaxOpenInvoicesUpdatedEvent, RefundProcessedEvent,
+    InvoiceCreatedEvent, InvoiceExpiryExtendedEvent, InvoiceTransferredEvent, MaxOpenInvoicesUpdatedEvent, MerchantMaxOpenInvoicesUpdatedEvent, RefundNetworkFeeUpdatedEvent, RefundProcessedEvent,
 };
 pub use invoice::StatusTransition;
 pub use invoice::{
@@ -24,8 +24,8 @@ pub use invoice::{
     MAX_BATCH_EXPIRE, MAX_BATCH_SIZE, MAX_LATE_FEE_BPS, MAX_PAGE_LIMIT, MAX_PAYER_INDEX_ENTRIES,
 };
 pub use refund::{
-    calculate_net_refund, refund_recipient, transfer_net_refund, verify_payment_state, NetRefund,
-    BPS_DENOMINATOR, MAX_REFUND_FEE_BPS, REFUND_NETWORK_FEE,
+    calculate_net_refund, calculate_net_refund_with_network_fee, refund_recipient, transfer_net_refund, verify_payment_state, NetRefund,
+    BPS_DENOMINATOR, MAX_REFUND_FEE_BPS, MAX_REFUND_NETWORK_FEE, REFUND_NETWORK_FEE,
 };
 pub use template::{
     InvoiceTemplate, RecurrenceInterval, TEMPLATE_KEEPER_BATCH_SIZE, TEMPLATE_PAGE_LIMIT,

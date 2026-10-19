@@ -7,3 +7,4 @@ mod batch;
 mod lifecycle;
 mod refund;
 mod template;
+mod transfer;

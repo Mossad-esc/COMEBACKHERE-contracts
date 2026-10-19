@@ -97,6 +97,7 @@ fn invoice_description(e: InvoiceError) -> &'static str {
         MemoTooLong => "The memo field is too long.",
         RefundWindowClosed => "The refund window for this invoice has closed.",
         SelfPayNotAllowed => "A merchant cannot pay its own invoice.",
+        TemplateDisabled => "The invoice template is disabled.",
     }
 }
 

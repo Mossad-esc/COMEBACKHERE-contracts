@@ -1,7 +1,7 @@
 #![no_std]
 
 use compliance_client::ComplianceClient;
-use multisig::{Settlement, TreasuryError};
+pub use multisig::{Settlement, SettlementStatus, TreasuryError};
 use soroban_sdk::{
     contract, contractclient, contracterror, contractimpl, contracttype, Address, Env, Symbol, Vec,
 };
@@ -20,6 +20,30 @@ pub trait TreasuryInterface {
     /// event, so indexers don't have to correlate against `settlement_executed` to
     /// learn how much moved (#614).
     fn get_settlement(env: Env, settlement_id: u64) -> Settlement;
+}
+
+/// Why a simulated settlement would not succeed, mirroring the checks in
+/// [`SettlementWorkflowContract::execute_with_compliance`] (#618).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SimulationFailure {
+    /// The workflow is paused, so `execute_with_compliance` would trap.
+    WorkflowPaused,
+    /// `Compliance::require_allowed_for_treasury(merchant)` rejected the merchant.
+    ComplianceCheckFailed,
+    /// The settlement is not in a state treasury would execute (unknown ID,
+    /// already executed, cancelled, or on hold).
+    TreasuryWouldReject,
+}
+
+/// Outcome of [`SettlementWorkflowContract::simulate_with_compliance`] (#618).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SimulationResult {
+    /// Every check the execution path runs from here would pass.
+    WouldSucceed,
+    /// Execution would fail, and this is the check that would fail first.
+    WouldFail(SimulationFailure),
 }
 
 /// The pause surface shared by every protocol contract this workflow can
@@ -364,6 +388,42 @@ impl SettlementWorkflowContract {
             (merchant.clone(), token_contract.clone(), amount),
         );
         Ok(())
+    }
+
+    /// Read-only preview of [`Self::execute_with_compliance`] (#618).
+    ///
+    /// Performs no state changes and emits no events, so operators and frontends
+    /// can tell whether a settlement will pass compliance before submitting it.
+    /// The compliance leg calls the same `require_allowed_for_treasury` that
+    /// `execute_with_compliance` calls, so the two cannot drift; the treasury leg
+    /// uses the read-only `try_get_settlement` rather than `execute_settlement`.
+    ///
+    /// Quorum and treasury pause state are not checked here, so `WouldSucceed`
+    /// means "the workflow is live, the compliance gate passes and the settlement
+    /// is `Pending`"; execution can still fail with e.g. `ThresholdNotMet`. The
+    /// negative results are exact.
+    pub fn simulate_with_compliance(
+        env: Env,
+        settlement_id: u64,
+        merchant: Address,
+    ) -> SimulationResult {
+        let paused: bool = env
+            .storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false);
+        if paused {
+            return SimulationResult::WouldFail(SimulationFailure::WorkflowPaused);
+        }
+        let compliance = ComplianceClient::new(&env, &Self::compliance_id(&env));
+        if compliance.require_allowed_for_treasury(&merchant).is_err() {
+            return SimulationResult::WouldFail(SimulationFailure::ComplianceCheckFailed);
+        }
+        let treasury = TreasuryOnlyClient::new(&env, &Self::treasury_id(&env));
+        match treasury.try_get_settlement(&settlement_id) {
+            Ok(Ok(s)) if s.status == SettlementStatus::Pending => SimulationResult::WouldSucceed,
+            _ => SimulationResult::WouldFail(SimulationFailure::TreasuryWouldReject),
+        }
     }
 
     /// Batch variant of `execute_with_compliance` (#367). Runs the shared compliance

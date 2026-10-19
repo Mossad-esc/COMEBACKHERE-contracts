@@ -5,7 +5,8 @@
 use crate::events;
 use crate::invoice::{MaybeU64, RefundStatus};
 use crate::refund::{
-    calculate_net_refund, refund_recipient, transfer_net_refund, verify_payment_state,
+    calculate_net_refund_with_network_fee, configured_network_fee, refund_recipient,
+    transfer_net_refund, verify_payment_state,
 };
 use crate::validation::{require_admin, require_not_paused};
 use crate::append_history;
@@ -169,7 +170,11 @@ impl InvoiceContract {
             MaybeAddress::None => return Err(InvoiceError::RefundTokenNotSet),
         };
         // Reject an out-of-range fee before the transfer, not after.
-        let refund = calculate_net_refund(invoice.amount_usdc, fee_bps)?;
+        let refund = calculate_net_refund_with_network_fee(
+            invoice.amount_usdc,
+            fee_bps,
+            configured_network_fee(&env),
+        )?;
 
         // Payout first: on failure this returns `Err` and none of the writes
         // below run, which is what keeps the two contracts from disagreeing.
@@ -203,11 +208,11 @@ impl InvoiceContract {
     ///
     /// Errors: `RefundFeeTooHigh`, `InvalidAmount`, `ArithmeticOverflow`.
     pub fn calculate_net_refund(
-        _env: Env,
+        env: Env,
         gross_amount: i128,
         fee_bps: u32,
     ) -> Result<NetRefund, InvoiceError> {
-        calculate_net_refund(gross_amount, fee_bps)
+        calculate_net_refund_with_network_fee(gross_amount, fee_bps, configured_network_fee(&env))
     }
 
     /// The fee breakdown recorded by `process_refund` for `id`, if any.

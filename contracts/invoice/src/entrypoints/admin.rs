@@ -2,6 +2,7 @@ use crate::events;
 use crate::events::{
     GraceWindowUpdatedEvent, InvoiceExpiryExtendedEvent, MaxOpenInvoicesUpdatedEvent, MerchantMaxOpenInvoicesUpdatedEvent,
 };
+use crate::refund::{configured_network_fee, MAX_REFUND_NETWORK_FEE};
 use crate::validation::require_admin;
 use crate::{
     DataKey, Invoice, InvoiceContract, InvoiceContractArgs, InvoiceContractClient, InvoiceError,
@@ -257,5 +258,29 @@ impl InvoiceContract {
             },
         );
         Ok(())
+    }
+
+    // --- #701: admin-configurable refund network fee ---
+
+    /// Set the flat refund network fee (in stroops) deducted from refund payouts.
+    /// Admin-only. Must be in `[0, MAX_REFUND_NETWORK_FEE]`.
+    /// Emits `refund_network_fee_updated` with the old and new fee.
+    pub fn set_refund_network_fee(env: Env, admin: Address, fee: i128) -> Result<(), InvoiceError> {
+        require_admin(&env, &admin)?;
+        if !(0..=MAX_REFUND_NETWORK_FEE).contains(&fee) {
+            return Err(InvoiceError::InvalidAmount);
+        }
+        let old_fee = configured_network_fee(&env);
+        env.storage()
+            .instance()
+            .set(&DataKey::RefundNetworkFee, &fee);
+        events::refund_network_fee_updated(&env, old_fee, fee);
+        Ok(())
+    }
+
+    /// Return the refund network fee in force, in stroops
+    /// (`REFUND_NETWORK_FEE` when not explicitly configured).
+    pub fn get_refund_network_fee(env: Env) -> i128 {
+        configured_network_fee(&env)
     }
 }

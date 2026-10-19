@@ -69,5 +69,8 @@ declare_contract_error! {
         // Appended for #717: mark_paid called with payer == the invoice's
         // merchant (self-pay), which could inflate volume metrics.
         SelfPayNotAllowed = 33,
+        // Appended for #694: generate_from_template was called on a template
+        // that has been deactivated.
+        TemplateDisabled = 34,
     }
 }
