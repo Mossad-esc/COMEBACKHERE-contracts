@@ -146,21 +146,19 @@ impl SettlementWorkflowContract {
     /// Pins the compliance and treasury contract instances this workflow trusts,
     /// and records `admin` as the initial administrator.
     ///
-    /// Must be called exactly once before any `execute_with_compliance*` call; a
-    /// second call traps with `AlreadyInitialized` (#364). Callers can no longer
-    /// redirect the gate at an arbitrary compliance/treasury instance per-call.
-    /// The same guard also covers the admin role (#621), so a repeat call cannot
-    /// hand the admin key to an attacker either.
+    /// Runs exactly once as the deployment constructor (via `register_contract`
+    /// with constructor args), so there is no window after deployment in which a
+    /// third party could front-run `initialize` and seize control of the workflow.
+    /// Because it is a constructor, it cannot be called again — there is no
+    /// `AlreadyInitialized` path to hit; the constructor arguments are the
+    /// pinned values for the lifetime of the contract.
     /// Emits: `workflow_initialized`.
-    ///
-    /// The guard reads `ComplianceId` rather than `Admin`; the two are written in
-    /// the same call and so are always present or absent together, but
-    /// `ComplianceId` is what this check has always keyed on and what the pinned
-    /// trust relationship is expressed in terms of.
-    pub fn initialize(env: Env, admin: Address, compliance_id: Address, treasury_id: Address) {
-        if env.storage().instance().has(&DataKey::ComplianceId) {
-            soroban_sdk::panic_with_error!(env, TreasuryError::AlreadyInitialized);
-        }
+    pub fn __constructor(
+        env: Env,
+        admin: Address,
+        compliance_id: Address,
+        treasury_id: Address,
+    ) {
         admin.require_auth();
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage()
@@ -254,6 +252,28 @@ impl SettlementWorkflowContract {
             .instance()
             .get(&DataKey::TreasuryId)
             .unwrap_or_else(|| soroban_sdk::panic_with_error!(env, WorkflowError::NotConfigured))
+    }
+
+    /// Returns the pinned compliance contract instance so ops can confirm
+    /// on-chain which compliance contract the workflow calls (#775).
+    ///
+    /// Errors: `NotConfigured` if the workflow has not been initialized.
+    pub fn get_compliance_id(env: Env) -> Result<Address, WorkflowError> {
+        env.storage()
+            .instance()
+            .get(&DataKey::ComplianceId)
+            .ok_or(WorkflowError::NotConfigured)
+    }
+
+    /// Returns the pinned treasury contract instance so ops can confirm
+    /// on-chain which treasury contract the workflow calls (#775).
+    ///
+    /// Errors: `NotConfigured` if the workflow has not been initialized.
+    pub fn get_treasury_id(env: Env) -> Result<Address, WorkflowError> {
+        env.storage()
+            .instance()
+            .get(&DataKey::TreasuryId)
+            .ok_or(WorkflowError::NotConfigured)
     }
 
     /// Pauses the workflow (admin-only, #616): both `execute_with_compliance*`
