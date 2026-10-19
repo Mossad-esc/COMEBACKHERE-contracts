@@ -14,7 +14,7 @@ mod validation;
 
 pub use events::{
     EscrowReleasedEvent, GraceWindowUpdatedEvent, InvoiceAmountUpdatedEvent,
-    InvoiceExpiryExtendedEvent, MaxOpenInvoicesUpdatedEvent, MerchantMaxOpenInvoicesUpdatedEvent, RefundProcessedEvent,
+    InvoiceCreatedEvent, InvoiceExpiryExtendedEvent, MaxOpenInvoicesUpdatedEvent, MerchantMaxOpenInvoicesUpdatedEvent, RefundProcessedEvent,
 };
 pub use invoice::StatusTransition;
 pub use invoice::{

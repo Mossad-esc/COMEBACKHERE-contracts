@@ -38,7 +38,7 @@ all entrypoints in `contracts/invoice/src/entrypoints/` call through these helpe
 
 | Event | Topics | Data type | Emitted by |
 |---|---|---|---|
-| `invoice_created` | `(Symbol, id: u64)` | `Invoice` | `create_invoice`, `batch_create_invoice` |
+| `invoice_created` | `(Symbol, id: u64)` | `InvoiceCreatedEvent` (v2: `id, merchant, amount_usdc, gross_usdc, expires_at, merchant_nonce, token_address`; v1 was the full `Invoice`) | `create_invoice`, `batch_create_invoice` |
 | `invoice_paid` | `(Symbol, id: u64)` | `Invoice` | `mark_paid` |
 | `invoice_expired` | `(Symbol, id: u64)` | `Invoice` | `batch_expire` |
 | `invoice_cancelled` | `(Symbol, id: u64)` | `Invoice` | `cancel_invoice` |

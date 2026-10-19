@@ -66,5 +66,8 @@ declare_contract_error! {
         // refund window (paid_at + refund_window_secs) has elapsed. Zero means
         // no limit, preserving the current behaviour.
         RefundWindowClosed = 32,
+        // Appended for #717: mark_paid called with payer == the invoice's
+        // merchant (self-pay), which could inflate volume metrics.
+        SelfPayNotAllowed = 33,
     }
 }

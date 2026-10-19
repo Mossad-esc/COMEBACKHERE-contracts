@@ -1,5 +1,5 @@
 use invoice::{
-    EscrowReleasedEvent, GraceWindowUpdatedEvent, InvoiceContract, InvoiceContractClient,
+    EscrowReleasedEvent, GraceWindowUpdatedEvent, InvoiceContract, InvoiceContractClient, InvoiceCreatedEvent,
     MaxOpenInvoicesUpdatedEvent, MaybeAddress, MaybeBytes,
 };
 use soroban_sdk::{
@@ -78,7 +78,17 @@ fn event_invoice_created_snapshot() {
         &0,
         &MaybeAddress::None,
     );
-    assert_snapshot("invoice_created", &to_hex(&env, client.get_invoice(&id)));
+    let inv = client.get_invoice(&id);
+    let payload = InvoiceCreatedEvent {
+        id,
+        merchant: inv.merchant,
+        amount_usdc: inv.amount_usdc,
+        gross_usdc: inv.gross_usdc,
+        expires_at: inv.expires_at,
+        merchant_nonce: inv.merchant_nonce,
+        token_address: inv.token_address,
+    };
+    assert_snapshot("invoice_created", &to_hex(&env, payload));
 }
 
 // --- invoice_paid ---
