@@ -340,6 +340,14 @@ pub enum DataKey {
     SignerChangeCount,
     /// Persistent storage for a timelocked signer/threshold-change proposal (#447).
     SignerChange(u64),
+    /// Cumulative executed amount across all `partially_execute_settlement` calls for a
+    /// given settlement id (#578). Used to guard against overflow when accumulating
+    /// partial execution amounts over multiple calls.
+    PartialExecutedTotal(u64),
+    /// Bounded history of merchant payout address changes for audit purposes (#579).
+    /// Stores a `Vec<(Address, u64)>` of `(new_address, timestamp)` pairs, capped at
+    /// `MAX_PAYOUT_HISTORY` entries (oldest entries are dropped when the cap is reached).
+    PayoutAddressHistory(Address),
     /// Optional UNIX timestamp after which a settlement hold automatically lapses (#592).
     /// Stored separately from `Settlement` to avoid breaking the ABI snapshot.
     /// Absent means the hold has no expiry.
