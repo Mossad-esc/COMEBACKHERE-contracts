@@ -164,3 +164,10 @@ follow-ups should be filed and linked from the parent audit issue:
 
 Both follow-ups are scoped as their own PRs; this audit's job is documentation
 and detection, not remediation.
+
+## Invoice batch entrypoints (#713)
+
+`batch_create_invoice` and `batch_expire` now extend the TTL of every
+`DataKey::Invoice(id)` they write, using `INVOICE_TTL_THRESHOLD = 518_400`
+(~30 days) and `INVOICE_TTL_EXTEND_TO = 1_036_800` (~60 days) ledgers, both
+defined in `contracts/invoice/src/invoice.rs`.

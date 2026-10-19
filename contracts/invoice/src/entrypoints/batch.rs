@@ -6,7 +6,7 @@ use crate::validation::{
 use crate::{append_history, pending_index_add, pending_index_remove};
 use crate::{
     BatchInvoiceParams, DataKey, Invoice, InvoiceContract, InvoiceContractArgs,
-    InvoiceContractClient, InvoiceError, InvoiceStatus, MaybeAddress, MAX_BATCH_EXPIRE,
+    InvoiceContractClient, InvoiceError, InvoiceStatus, MaybeAddress, INVOICE_TTL_EXTEND_TO, INVOICE_TTL_THRESHOLD, MAX_BATCH_EXPIRE,
 };
 use soroban_sdk::{contractimpl, Address, Env, Vec};
 
@@ -87,6 +87,11 @@ impl InvoiceContract {
             env.storage()
                 .persistent()
                 .set(&DataKey::Invoice(id), &invoice);
+            env.storage().persistent().extend_ttl(
+                &DataKey::Invoice(id),
+                INVOICE_TTL_THRESHOLD,
+                INVOICE_TTL_EXTEND_TO,
+            );
             env.storage().instance().set(&DataKey::InvoiceCount, &id);
 
             if p.merchant_nonce != 0 {
@@ -138,6 +143,11 @@ impl InvoiceContract {
                 if invoice.status == InvoiceStatus::Pending && now >= invoice.expires_at {
                     invoice.status = InvoiceStatus::Expired;
                     env.storage().persistent().set(&key, &invoice);
+                    env.storage().persistent().extend_ttl(
+                        &key,
+                        INVOICE_TTL_THRESHOLD,
+                        INVOICE_TTL_EXTEND_TO,
+                    );
                     pending_index_remove(&env, id);
                     append_history(&env, id, InvoiceStatus::Pending, InvoiceStatus::Expired);
                     events::invoice_expired(&env, id, &invoice);

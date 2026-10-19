@@ -71,6 +71,11 @@ precommit:
     scripts/check-enum-doc-comments.sh
     @echo "✓ Pre-commit checks passed"
 
+# Run the invoice refund-math fuzz target for a bounded duration (seconds).
+# Requires nightly + cargo-fuzz: cargo install cargo-fuzz
+fuzz-net-refund seconds="300":
+    cd contracts/invoice/fuzz && cargo +nightly fuzz run net_refund -- -max_total_time={{seconds}}
+
 # Deploy all three contracts to testnet.
 #
 # Required env vars:

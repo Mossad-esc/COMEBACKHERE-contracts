@@ -1,6 +1,6 @@
 use crate::events;
 use crate::events::{
-    GraceWindowUpdatedEvent, InvoiceExpiryExtendedEvent, MaxOpenInvoicesUpdatedEvent,
+    GraceWindowUpdatedEvent, InvoiceExpiryExtendedEvent, MaxOpenInvoicesUpdatedEvent, MerchantMaxOpenInvoicesUpdatedEvent,
 };
 use crate::validation::require_admin;
 use crate::{
@@ -86,6 +86,47 @@ impl InvoiceContract {
             .instance()
             .get(&DataKey::MaxOpenInvoices)
             .unwrap_or(0u32)
+    }
+
+    // --- #715: per-merchant open-invoice limit override ---
+
+    /// Set a per-merchant override of the open-invoice cap. Pass `None` to clear
+    /// the override, falling back to the global cap. Admin-only.
+    /// Emits `merchant_max_open_invoices_updated`.
+    pub fn set_merchant_max_open_invoices(
+        env: Env,
+        admin: Address,
+        merchant: Address,
+        limit: Option<u32>,
+    ) -> Result<(), InvoiceError> {
+        require_admin(&env, &admin)?;
+        let key = DataKey::MerchantMaxOpenInvoices(merchant.clone());
+        match limit {
+            Some(limit) => env.storage().persistent().set(&key, &limit),
+            None => env.storage().persistent().remove(&key),
+        }
+        events::merchant_max_open_invoices_updated(
+            &env,
+            &MerchantMaxOpenInvoicesUpdatedEvent {
+                merchant,
+                new_limit: limit,
+            },
+        );
+        Ok(())
+    }
+
+    /// Return the effective open-invoice cap for `merchant`: the per-merchant
+    /// override if one is set, otherwise the global cap (0 = no limit).
+    pub fn get_max_open_invoices_for(env: Env, merchant: Address) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::MerchantMaxOpenInvoices(merchant))
+            .unwrap_or_else(|| {
+                env.storage()
+                    .instance()
+                    .get(&DataKey::MaxOpenInvoices)
+                    .unwrap_or(0u32)
+            })
     }
 
     // --- late-fee configuration ---

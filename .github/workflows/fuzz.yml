@@ -21,6 +21,9 @@ jobs:
           - name: invoice
             directory: contracts/invoice/fuzz
             target: amount_precision
+          - name: invoice-net-refund
+            directory: contracts/invoice/fuzz
+            target: net_refund
     steps:
       - uses: actions/checkout@v4
 

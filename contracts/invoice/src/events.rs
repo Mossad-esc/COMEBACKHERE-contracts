@@ -168,6 +168,22 @@ pub fn max_open_invoices_updated(env: &Env, event: &MaxOpenInvoicesUpdatedEvent)
     );
 }
 
+/// Emitted when the admin sets or clears a per-merchant open-invoice cap (#715).
+/// `new_limit` is `None` when the override was cleared.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MerchantMaxOpenInvoicesUpdatedEvent {
+    pub merchant: Address,
+    pub new_limit: Option<u32>,
+}
+
+pub fn merchant_max_open_invoices_updated(env: &Env, event: &MerchantMaxOpenInvoicesUpdatedEvent) {
+    env.events().publish(
+        (Symbol::new(env, "merchant_max_open_invoices_updated"),),
+        event.clone(),
+    );
+}
+
 pub fn invoice_amended(env: &Env, event: &InvoiceAmountUpdatedEvent) {
     env.events().publish(
         (Symbol::new(env, "invoice_amended"), event.id),

@@ -20,6 +20,11 @@ pub const MAX_BATCH_SIZE: u32 = 50;
 /// Maximum number of invoice IDs accepted by batch_expire per call.
 pub const MAX_BATCH_EXPIRE: u32 = 100;
 
+/// Ledger-count threshold below which a persistent entry's TTL is extended.
+pub const INVOICE_TTL_THRESHOLD: u32 = 518_400; // ~30 days at 5s/ledger
+/// Ledger-count a persistent entry's TTL is extended to once it is bumped.
+pub const INVOICE_TTL_EXTEND_TO: u32 = 1_036_800; // ~60 days at 5s/ledger
+
 /// Maximum bytes accepted for optional invoice hash fields.
 pub const MAX_HASH_BYTES: u32 = 64;
 
@@ -41,6 +46,47 @@ pub enum InvoiceStatus {
     Released,
     /// Refund has been approved by admin; terminal status for disputed invoices.
     Refunded,
+}
+
+impl InvoiceStatus {
+    /// Returns true if this status is terminal: the invoice can no longer
+    /// transition to any other status. Adding a new `InvoiceStatus` variant
+    /// forces a deliberate decision here because the match below has no
+    /// wildcard arm.
+    pub fn is_terminal(&self) -> bool {
+        match self {
+            InvoiceStatus::Pending => false,
+            InvoiceStatus::Paid => false,
+            InvoiceStatus::Expired => true,
+            InvoiceStatus::Cancelled => true,
+            InvoiceStatus::RefundRequested => false,
+            InvoiceStatus::Released => true,
+            InvoiceStatus::Refunded => true,
+        }
+    }
+}
+
+#[cfg(test)]
+mod is_terminal_tests {
+    use super::InvoiceStatus;
+
+    /// Exhaustively checks every `InvoiceStatus` variant against the expected
+    /// terminal/non-terminal classification.
+    #[test]
+    fn is_terminal_covers_every_variant() {
+        let variants = [
+            (InvoiceStatus::Pending, false),
+            (InvoiceStatus::Paid, false),
+            (InvoiceStatus::Expired, true),
+            (InvoiceStatus::Cancelled, true),
+            (InvoiceStatus::RefundRequested, false),
+            (InvoiceStatus::Released, true),
+            (InvoiceStatus::Refunded, true),
+        ];
+        for (status, expected) in variants {
+            assert_eq!(status.is_terminal(), expected, "is_terminal() for {:?}", status);
+        }
+    }
 }
 
 // contracttype enum wrappers for optional complex types; Option<Address> and
@@ -189,6 +235,9 @@ pub enum DataKey {
     /// Admin-tunable maximum number of open (pending) invoices a single merchant
     /// may hold at one time. 0 means no limit (default).
     MaxOpenInvoices,
+    /// Admin-tunable per-merchant override of `MaxOpenInvoices` (#715). When
+    /// absent, the merchant falls back to the global cap.
+    MerchantMaxOpenInvoices(Address),
     /// Admin-tunable late-fee rate in basis points (1 bps = 0.01%).
     /// Applied to overdue invoices at the discretion of the settlement layer.
     LateFee,
