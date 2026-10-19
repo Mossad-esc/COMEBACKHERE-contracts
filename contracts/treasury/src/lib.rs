@@ -103,6 +103,9 @@ impl TreasuryContract {
 /// Maximum number of tokens allowed in the allowlist to prevent unbounded storage growth.
 pub(crate) const MAX_ALLOWED_TOKENS: u32 = 20;
 
+/// Maximum number of bytes allowed in a dispute resolution memo (#744).
+pub(crate) const MAX_DISPUTE_MEMO_LEN: u32 = 256;
+
 pub(crate) fn require_admin(env: &Env, admin: &Address) {
     admin.require_auth();
     // An uninitialized contract has no admin, so it fails closed as Unauthorized.
