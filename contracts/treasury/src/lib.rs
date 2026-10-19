@@ -98,6 +98,30 @@ impl TreasuryContract {
     pub fn cancel_admin_transfer(env: Env) -> Result<(), TreasuryError> {
         admin::cancel_admin_transfer(&env)
     }
+
+    /// Read-only view of how far a partial settlement has progressed (#738).
+    /// Returns `(approved_total, executed_total, remaining)` where `approved_total` is the
+    /// internally tracked `PartialApprovedTotal`, `executed_total` is the amount already
+    /// executed, and `remaining` is `approved_total - executed_total` (saturating at zero).
+    /// Errors: `SettlementNotFound`.
+    pub fn get_partial_progress(env: Env, settlement_id: u64) -> Result<(i128, i128, i128), TreasuryError> {
+        settlements::get_partial_progress(&env, settlement_id)
+    }
+
+    /// Registers or updates a signer's approval weight. Rejects a weight of `0` with
+    /// `ZeroSignerWeight` — callers must use `remove_signer` to drop a signer instead of
+    /// leaving a zero-weight entry in `SignerList` (#739).
+    /// Errors: `Unauthorized`, `ZeroSignerWeight`.
+    pub fn set_signer(env: Env, signer: Address, weight: u32) -> Result<(), TreasuryError> {
+        signers::set_signer(&env, signer, weight)
+    }
+
+    /// Sets a human-readable label for `signer`. The label is capped at
+    /// `MAX_SIGNER_LABEL_LEN` bytes to bound storage costs (#740).
+    /// Errors: `Unauthorized`, `SignerLabelTooLong`.
+    pub fn set_signer_label(env: Env, signer: Address, label: String) -> Result<(), TreasuryError> {
+        signers::set_signer_label(&env, signer, label)
+    }
 }
 
 /// Maximum number of tokens allowed in the allowlist to prevent unbounded storage growth.
@@ -105,6 +129,9 @@ pub(crate) const MAX_ALLOWED_TOKENS: u32 = 20;
 
 /// Maximum number of bytes allowed in a dispute resolution memo (#744).
 pub(crate) const MAX_DISPUTE_MEMO_LEN: u32 = 256;
+/// Maximum length, in bytes, of a signer label accepted by `set_signer_label`.
+/// Bounds storage costs by rejecting unbounded caller-supplied strings (#740).
+pub(crate) const MAX_SIGNER_LABEL_LEN: u32 = 64;
 
 pub(crate) fn require_admin(env: &Env, admin: &Address) {
     admin.require_auth();
