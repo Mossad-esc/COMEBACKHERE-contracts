@@ -137,4 +137,10 @@ pub enum DataKey {
     /// Fee breakdown of a processed refund: gross amount, processing fee,
     /// network fee and the net amount transferred to the payer (#71).
     RefundBreakdown(u64),
+    /// Admin-tunable maximum number of open (pending) invoices a single merchant
+    /// may hold at one time. 0 means no limit (default).
+    MaxOpenInvoices,
+    /// Admin-tunable late-fee rate in basis points (1 bps = 0.01%).
+    /// Applied to overdue invoices at the discretion of the settlement layer.
+    LateFee,
 }
