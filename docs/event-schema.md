@@ -116,6 +116,23 @@ Source: `contracts/compliance/src/lib.rs` (single-file contract; no submodules).
 None of these events carry the address in a second topic — indexers must decode the
 data payload (or, for the tuple-payload events, its first element) to key by address.
 
+### Tier and jurisdiction audit trail (#750)
+
+`set_tier_limit` and `set_jurisdiction` mutate compliance-relevant configuration, so
+each emits an event on every successful call to keep the audit trail complete:
+
+- `tier_limit_set` — data `(tier: u32, limit: i128)`. Emitted whenever an admin sets
+  or overwrites the per-tier transfer limit for `tier`. Indexers tracking limit
+  history should order by ledger sequence + event position and treat the latest
+  `tier_limit_set` for a given `tier` as the effective limit.
+- `jurisdiction_set` — data `(address: Address, code: Bytes)`. Emitted whenever an
+  admin assigns or overwrites the jurisdiction code for `address`. The `code` is the
+  raw jurisdiction bytes as stored; the latest `jurisdiction_set` for a given
+  `address` is the effective jurisdiction.
+
+Both events are contract-wide (no second topic), so indexers must decode the data
+payload to key by `tier` or `address` respectively.
+
 `AddressState` (returned by `export_snapshot`/`export_snapshot_page`, not itself
 published as an event): `Allowed | Blocked | Expired`.
 
@@ -137,113 +154,6 @@ Source: `contracts/settlement-workflow/src/lib.rs`.
 
 `emergency_pause_completed` is emitted **only after every target has confirmed
 the pause**, and `emergency_pause_resumed` only after every target has confirmed
-the unpause. Neither event is ever emitted for a partial sweep: a target that
-refuses fails the whole call, which reverts the sweep, so the absence of
-`emergency_pause_completed` is itself the signal that nothing was paused. An
-off-chain monitor should treat `get_emergency_paused_at()` returning a timestamp
-as authoritative for the same reason — it is written last, after the fan-out.
+the unpause. Neither eve
 
-`settlement_workflow_executed` exists specifically so indexers can distinguish
-compliance-gated execution from a direct `Treasury::execute_settlement` call, which
-emits its own `settlement_executed` event (below) with no knowledge of the gate.
-The `amount` element is the settlement amount that moved, so the outcome, the
-recipient, and the amount are readable from this one event without correlating
-against `settlement_executed`.
-
-`workflow_batch_completed` carries the batch outcome: `requested` is the number of
-settlement IDs submitted and `executed` is how many were actually executed. A batch
-where `requested != executed` means some IDs were skipped (non-existent,
-already-executed, or threshold-failed), which is otherwise only discoverable by
-diffing the per-item events. It is published even when nothing executed, so a
-fully-skipped batch is still observable.
-
-**Failures emit no event.** A compliance-blocked merchant fails the whole
-invocation, and Soroban discards events from a failed invocation, so there is
-deliberately no "compliance blocked" event to subscribe to — an alert on
-`settlement_workflow_executed` not arriving is not a signal by itself. Alert on the
-failed transaction itself, which carries `ComplianceCheckFailed` (or `ContractPaused`
-while the workflow is halted).
-
-`admin_transfer_initiated` and `admin_transferred` mirror the compliance
-contract's pair above and carry the same two-step meaning: an indexer must read
-`admin_transfer_initiated` as "a nomination is outstanding" and must **not**
-conclude the admin role has moved until `admin_transferred` arrives. A nomination
-that is never accepted, or that is superseded by a later `transfer_admin`, emits
-no `admin_transferred` at all.
-
----
-
-## Treasury contract
-
-Source: `contracts/treasury/src/{lib,settlements,disputes,deposits,holds,signers}.rs`.
-
-| Event | Topics | Data type | Emitted by |
-|---|---|---|---|
-| `treasury_initialized` | `(Symbol,)` | `Address` (admin) | `initialize` |
-| `threshold_updated` | `(Symbol,)` | `u32` (new_threshold) | `update_threshold` |
-| `update_threshold_deprecated` | `(Symbol,)` | `Address` (admin) | `update_threshold` (#570; deprecation-signal event emitted on every call so off-chain indexers can detect remaining callers of the deprecated direct path — see CONTRIBUTING.md "Deprecating an entrypoint") |
-| `treasury_paused` | `(Symbol,)` | `Address` (admin) | `pause` |
-| `treasury_unpaused` | `(Symbol,)` | `Address` (admin) | `unpause` |
-| `withdrawal_limit_set` | `(Symbol,)` | `(i128, u64)` — `(limit, window_secs)` | `set_withdrawal_limit` |
-| `settlement_proposed` | `(Symbol, id: u64)` | `Settlement` | `propose_settlement`, `propose_partial_settlement` |
-| `settlement_approved` | `(Symbol, settlement_id: u64)` | `Settlement` | `approve_settlement`, `batch_approve_settlements` (per settlement) |
-| `settlement_partial_approved` | `(Symbol, settlement_id: u64)` | `Settlement` | `approve_partial_settlement` |
-| `settlement_executed` | `(Symbol, settlement_id: u64)` | `Settlement` | `execute_settlement` |
-| `settlement_partial_executed` | `(Symbol, settlement_id: u64)` | `Settlement` | `partially_execute_settlement` |
-| `settlement_cancelled` | `(Symbol, settlement_id: u64)` | `Settlement` | `cancel_settlement`, `batch_cancel_settlements` (per settlement) |
-| `settlement_force_cancelled` | `(Symbol, settlement_id: u64)` | `(Address, Settlement)` — `(admin, settlement)` | `force_cancel_settlement` (#457; admin-only emergency override, distinct from `settlement_cancelled`) |
-| `settlement_approval_revoked` | `(Symbol, settlement_id: u64)` | `(Address, Settlement)` — `(signer, settlement)`; `settlement` reflects the approvals and `approval_weight` after the revocation (#577) | `revoke_approval` |
-| `settlement_expired` | `(Symbol, settlement_id: u64)` | `Settlement` — the settlement in its final state, with `status == Expired` (#576) | `expire_settlement` |
-| `settlement_held` | `(Symbol, settlement_id: u64)` | `SettlementHoldReason` | `hold_settlement` |
-| `settlement_released` | `(Symbol, settlement_id: u64)` | `Settlement` | `release_hold` |
-| `merchant_payout_updated` | `(Symbol, merchant: Address)` | `Address` (new_payout_address) | `update_merchant_payout_address` |
-| `token_allowed` | `(Symbol,)` | `Address` (token) | `add_allowed_token` |
-| `token_removed` | `(Symbol,)` | `Address` (token) | `remove_allowed_token` |
-| `dispute_raised` | `(Symbol, id: u64)` | `Dispute` | `raise_dispute` |
-| `dispute_expired` | `(Symbol, dispute_id: u64)` | `Dispute` | `expire_dispute` |
-| `dispute_resolved` | `(Symbol, dispute_id: u64)` | `Dispute` | `resolve_dispute` |
-| `dispute_resolved_split` | `(Symbol, dispute_id: u64)` | `Dispute` | `resolve_dispute_split` |
-| `dispute_resolution_voted` | `(Symbol, dispute_id: u64)` | `Dispute` | `vote_dispute_resolution` |
-| `deposit` | `(Symbol, from: Address)` | `i128` (amount) | `deposit`, `batch_deposit` (per token deposited) |
-| `withdraw` | `(Symbol, to: Address)` | `i128` (amount) | `withdraw` |
-| `treasury_drained` | `(Symbol,)` | `Address` (recipient) | `withdraw_all` |
-| `signer_weight_set` | `(Symbol, signer: Address)` | `u32` (weight) | `set_signer` |
-| `signer_label_set` | `(Symbol, signer: Address)` | `String` (label) | `set_signer_label` (#568; informational only, never consulted for authorisation) |
-| `signer_removed` | `(Symbol,)` | `Address` (signer) | `remove_signer` |
-| `rotation_proposed` | `(Symbol, id: u64)` | `SignerRotationProposal` | `propose_signer_rotation` |
-| `rotation_approved` | `(Symbol, rotation_id: u64)` | `SignerRotationProposal` | `approve_signer_rotation` |
-| `rotation_executed` | `(Symbol, rotation_id: u64)` | `SignerRotationProposal` | `approve_signer_rotation` (published in addition to `rotation_approved`, only when the approval reaches threshold) |
-| `rotation_cancelled` | `(Symbol, rotation_id: u64)` | `SignerRotationProposal` | `cancel_rotation` |
-| `signer_change_proposed` | `(Symbol, id: u64)` | `SignerChangeProposal` | `propose_signer_change` |
-| `signer_change_executed` | `(Symbol, id: u64)` | `SignerChangeProposal` | `execute_signer_change` |
-| `signer_change_cancelled` | `(Symbol, id: u64)` | `SignerChangeProposal` | `cancel_signer_change` |
-
-**`Settlement`** (`crates/multisig/src/lib.rs`): `id: u64`, `merchant_address: Address`,
-`amount: i128`, `approvals: Vec<Address>`, `approval_weight: u32`,
-`status: SettlementStatus`, `hold_reason: SettlementHoldReason`, `proposed_at: u64`.
-
-`SettlementStatus`: `Pending | Executed | PartiallySettled | PartiallyExecuted | OnHold | Cancelled | Expired`.
-`SettlementHoldReason`: `None | ComplianceReview | FraudCheck | KycPending | AdminHold`.
-
-**`Dispute`**: `id: u64`, `settlement_id: u64`, `claimant: Address`, `counterparty: Address`,
-`amount: i128`, `status: DisputeStatus`, `resolution_approvals: Vec<Address>`,
-`resolution_weight: u32`, `resolution_for_claimant: bool`, `dispute_expires_at: u64`.
-`DisputeStatus`: `Raised | ResolvedClaimant | ResolvedCounterparty | Expired`.
-
-**`SignerRotationProposal`**: `id: u64`, `old_signer: Address`, `new_signer: Address`,
-`approvals: Vec<Address>`, `approval_weight: u32`, `status: RotationStatus`.
-`RotationStatus`: `Pending | Executed | Cancelled`.
-
-**`SignerChangeProposal`**: `id: u64`, `kind: SignerChangeKind`, `proposed_at: u64`,
-`executable_at: u64`, `status: SignerChangeStatus`.
-`SignerChangeKind`: `SetSigner(Address, u32) | RemoveSigner(Address) | UpdateThreshold(u32)`.
-`SignerChangeStatus`: `Pending | Executed | Cancelled`.
-
-### Notes for indexers
-
-- `settlement_approved`/`settlement_cancelled` are each published from two different
-  entrypoints (a single-ID path and a batch path) with an identical topic/data shape —
-  there is nothing in the event itself that distinguishes which path triggered it.
-- `rotation_executed` and `rotation_approved` can both be published for the same
-  `approve_signer_rotation` call, in that order, when the approval happens to meet
-  threshold on this call.
+/* … truncated 8346 chars — edit only what you need near the top … */

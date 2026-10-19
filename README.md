@@ -205,3 +205,11 @@ Before submitting a pull request, make sure to:
 # License
 
 This project is licensed under the **MIT License**.
+
+## Handsoff notes
+
+<!-- handsoff-issue-751 -->
+- #751: Validate jurisdiction codes as ISO 3166-1 alpha-2
+
+<!-- handsoff-issue-752 -->
+- #752: Add `get_addresses_by_jurisdiction` paginated read

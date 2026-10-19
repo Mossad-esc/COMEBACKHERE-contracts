@@ -65,3 +65,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Compliance-gated settlement execution (`execute_with_compliance`): the recommended entry point for compliance-gated settlements (per `ARCHITECTURE.md`). It checks `Compliance::is_allowed` before invoking `Treasury::execute_settlement` using its own address as the authorizing signer, so the compliance gate is enforced even though Treasury does not consult compliance itself.
 - Clear precondition failure: if the workflow contract has not been registered as a Treasury signer via `Treasury::set_signer` for its own address, `execute_with_compliance` returns `TreasuryError::WorkflowNotRegisteredSigner` (added to the shared `TreasuryError` enum) instead of surfacing Treasury's generic `UnauthorizedSigner`, making the missing setup step obvious to first-time deployers (#370).
 - Auditable execution history: `get_executed_settlement_ids_page(start, limit)` returns the settlement IDs executed through this workflow (in execution order, paginated to mirror `Treasury::get_pending_settlements_page`), so an operator can confirm every executed settlement passed the compliance gate and spot any executed directly against Treasury that bypassed it (#373).
+
+### Deprecated
+
+#### Compliance Contract
+- `set_operator` and `get_operator` (#749) are deprecated in favor of the multi-operator API (`add_operator`, `remove_operator`, `get_operators`). The single-operator entrypoints now delegate to the multi-operator storage so both APIs stay authoritative and consistent; they will be removed in a future release.
