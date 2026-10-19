@@ -2,9 +2,7 @@
 mod malicious_compliance;
 
 use compliance::ComplianceContractClient;
-use settlement_workflow::{
-    SettlementBatchResult, SettlementWorkflowContract, SettlementWorkflowContractClient,
-};
+use settlement_workflow::{SettlementWorkflowContract, SettlementWorkflowContractClient, WorkflowError};
 use soroban_sdk::{
     contract, contractimpl,
     testutils::{Address as _, Events},
@@ -165,7 +163,7 @@ fn initialize_is_idempotent_and_pins_trusted_instances() {
         .try_initialize(&admin, &compliance_id, &treasury_id)
         .unwrap_err()
         .unwrap();
-    assert_eq!(err, TreasuryError::AlreadyInitialized.into());
+    assert_eq!(err, WorkflowError::AlreadyInitialized.into());
 }
 
 #[test]
@@ -382,7 +380,7 @@ fn execute_with_compliance_rejected_while_paused() {
         .try_execute_with_compliance(&settlement_id, &token_id, &merchant)
         .unwrap_err()
         .unwrap();
-    assert_eq!(err, TreasuryError::ContractPaused.into());
+    assert_eq!(err, WorkflowError::ContractPaused.into());
     assert_eq!(token::Client::new(&env, &token_id).balance(&merchant), 0);
 }
 
@@ -417,7 +415,7 @@ fn execute_with_compliance_batch_rejected_while_paused() {
         .try_execute_with_compliance_batch(&ids, &token_id, &merchant)
         .unwrap_err()
         .unwrap();
-    assert_eq!(err, TreasuryError::ContractPaused.into());
+    assert_eq!(err, WorkflowError::ContractPaused.into());
     assert_eq!(token::Client::new(&env, &token_id).balance(&merchant), 0);
 }
 
@@ -478,7 +476,7 @@ fn paused_workflow_reports_paused_before_compliance_check() {
         .try_execute_with_compliance(&settlement_id, &token_id, &merchant)
         .unwrap_err()
         .unwrap();
-    assert_eq!(err, TreasuryError::ContractPaused.into());
+    assert_eq!(err, WorkflowError::ContractPaused.into());
 }
 
 /// Only the recorded admin can pause; a random address is rejected with
@@ -500,12 +498,12 @@ fn non_admin_cannot_pause_or_unpause() {
     let outsider = Address::generate(&env);
     assert_eq!(
         workflow.try_pause(&outsider).unwrap_err().unwrap(),
-        TreasuryError::Unauthorized.into()
+        WorkflowError::Unauthorized.into()
     );
     assert!(!workflow.is_paused());
     assert_eq!(
         workflow.try_unpause(&outsider).unwrap_err().unwrap(),
-        TreasuryError::Unauthorized.into()
+        WorkflowError::Unauthorized.into()
     );
 }
 

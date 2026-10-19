@@ -28,8 +28,8 @@
 //   2. Add an entry to CHANGELOG.md describing the storage migration path.
 //   3. Include both changes in the same PR so reviewers see the full picture.
 
-use compliance::{ComplianceContract, ComplianceContractClient, ContractError, DataKey};
-use soroban_sdk::{testutils::Address as _, Address, Env, Symbol};
+use compliance::{ComplianceContract, ComplianceContractClient, ComplianceError, DataKey};
+use soroban_sdk::{testutils::Address as _, Address, Env};
 
 /// The schema version that compliance::initialize stores and
 /// get_schema_version returns.  This is intentionally a snapshot constant —
@@ -129,7 +129,7 @@ fn migrate_rejects_unexpected_version() {
     let (_env, admin, client) = setup_with_version(EXPECTED_SCHEMA_VERSION + 5);
     assert_eq!(
         client.try_migrate(&admin),
-        Err(Ok(ContractError::UnexpectedSchemaVersion))
+        Err(Ok(ComplianceError::UnexpectedSchemaVersion))
     );
     assert_eq!(client.get_schema_version(), EXPECTED_SCHEMA_VERSION + 5);
 }
@@ -140,7 +140,7 @@ fn migrate_rejects_non_admin() {
     let stranger = Address::generate(&env);
     assert_eq!(
         client.try_migrate(&stranger),
-        Err(Ok(ContractError::Unauthorized))
+        Err(Ok(ComplianceError::Unauthorized))
     );
 }
 
