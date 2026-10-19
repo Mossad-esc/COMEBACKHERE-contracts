@@ -7,10 +7,10 @@ use crate::validation::{
     require_admin, require_expiry_not_too_long, require_hash_not_too_long, require_not_paused,
     require_payer_not_merchant, require_positive_amount, require_usdc_precision, require_valid_payment_link_hash,
 };
-use crate::{append_history, pending_index_add, pending_index_remove};
+use crate::{append_history, payer_index_add, pending_index_add, pending_index_remove};
 use crate::{
     DataKey, Invoice, InvoiceContract, InvoiceContractArgs, InvoiceContractClient, InvoiceError,
-    InvoiceStatus, MaybeAddress, MaybeBytes, NetRefund,
+    InvoiceStatus, InvoiceSummary, MaybeAddress, MaybeBytes, NetRefund, MAX_PAGE_LIMIT,
 };
 use soroban_sdk::{contractimpl, Address, Env, Vec};
 
@@ -166,10 +166,15 @@ impl InvoiceContract {
 
         invoice.status = InvoiceStatus::Paid;
         invoice.paid_at = Some(env.ledger().timestamp());
-        invoice.payer = MaybeAddress::Some(payer);
+        invoice.payer = MaybeAddress::Some(payer.clone());
         env.storage()
             .persistent()
             .set(&DataKey::Invoice(id), &invoice);
+        // #711: the payer is recorded once, here, and never reassigned - there
+        // is no entrypoint that moves an invoice to a different payer - so the
+        // payer index never needs migrating. `reject_refund` returns the
+        // invoice to `Paid` with the same payer, leaving the entry valid.
+        payer_index_add(&env, &payer, id);
         pending_index_remove(&env, id);
         append_history(&env, id, InvoiceStatus::Pending, InvoiceStatus::Paid);
         events::invoice_paid(&env, id, &invoice);
@@ -216,6 +221,22 @@ impl InvoiceContract {
             .get(&DataKey::Invoice(id))
             .ok_or(InvoiceError::NotFound)?;
         Ok(invoice.status)
+    }
+
+    /// #712: lightweight invoice view for list screens.
+    ///
+    /// Returns the row fields a wallet needs - id, status, amount, expiry - plus
+    /// `paid_usdc`/`remaining_usdc` so how much a payer still owes is readable
+    /// in one call instead of by replaying `invoice_paid` and refund events.
+    /// Reads the same `DataKey::Invoice` record as `get_invoice`, so it can never
+    /// disagree with the full record.
+    pub fn get_invoice_summary(env: Env, id: u64) -> Result<InvoiceSummary, InvoiceError> {
+        let invoice: Invoice = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Invoice(id))
+            .ok_or(InvoiceError::NotFound)?;
+        Ok(InvoiceSummary::from(&invoice))
     }
 
     /// Return one status result per ID, preserving input order.
@@ -377,6 +398,43 @@ impl InvoiceContract {
                 .storage()
                 .persistent()
                 .get::<DataKey, u64>(&DataKey::MerchantInvoiceIndex(merchant.clone(), i))
+            {
+                page.push_back(id);
+            }
+        }
+        page
+    }
+
+    /// #711: return a page of invoice IDs that `payer` paid.
+    ///
+    /// The counterpart to `get_invoices_by_merchant`: it lets a wallet answer
+    /// "what do I owe / what have I paid?" without scanning every invoice.
+    ///
+    /// `start` is a zero-based offset into the payer's index and `limit` caps
+    /// the returned slice at [`MAX_PAGE_LIMIT`]; a larger `limit` is clamped
+    /// rather than rejected, and a `start` past the end returns an empty page.
+    /// Invoices with no designated payer (anything not yet `mark_paid`ed)
+    /// belong to no index and never appear here.
+    ///
+    /// The index is bounded per payer by [`MAX_PAYER_INDEX_ENTRIES`]: it holds
+    /// that many entries in `mark_paid` order, and payments beyond the cap are
+    /// accepted but not indexed. Page `get_invoices_page` or the `invoice_paid`
+    /// event stream for a payer's complete history.
+    pub fn get_invoices_by_payer(env: Env, payer: Address, start: u32, limit: u32) -> Vec<u64> {
+        let total: u64 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::PayerIndexCount(payer.clone()))
+            .unwrap_or(0);
+        let start = u64::from(start).min(total);
+        let limit = limit.min(MAX_PAGE_LIMIT);
+        let end = start.saturating_add(u64::from(limit)).min(total);
+        let mut page = Vec::new(&env);
+        for i in start..end {
+            if let Some(id) = env
+                .storage()
+                .persistent()
+                .get::<DataKey, u64>(&DataKey::PayerIndexEntry(payer.clone(), i))
             {
                 page.push_back(id);
             }

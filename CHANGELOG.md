@@ -21,6 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### Compliance Contract
 - `cancel_admin_transfer` (#611): current admin can revoke a pending `transfer_admin` nomination; emits `admin_transfer_cancelled`.
 - `migrate` (#610): admin-only, idempotent schema migration entrypoint. Schema version bumped 1 → 2 (no data layout change; v1 storage is migrated by rewriting the version marker). Rejects unexpected stored versions with `UnexpectedSchemaVersion`.
+#### Invoice Contract
+- `get_invoices_by_payer` (#711): payers are now indexed when `mark_paid` records them, and `get_invoices_by_payer(payer, start, limit)` pages that index so a wallet can list what is addressed to a payer without scanning every invoice. `limit` is clamped to `MAX_PAGE_LIMIT` (100), and the per-payer index is bounded at `MAX_PAYER_INDEX_ENTRIES` (500) — payments beyond the cap still succeed, they are simply not indexed.
+- `get_invoice_summary` (#712): returns an `InvoiceSummary` — the list-view projection of an invoice plus `paid_usdc`/`remaining_usdc`, so a client can read how much a payer still owes in one call instead of replaying `invoice_paid` and refund events. Derived from the same storage record as `get_invoice`, so the two can never disagree.
 
 #### Treasury Contract
 - Timelocked signer and threshold-configuration changes (#447). Admin calls to `set_signer`, `remove_signer`, and `update_threshold` can now be queued via `propose_signer_change` with a 24-hour delay enforced by `execute_signer_change`; any admin can cancel the queued change within that window via `cancel_signer_change`. This restores a meaningful reaction window against a single-compromised-admin-key scenario that the pre-existing immediate entrypoints lacked.

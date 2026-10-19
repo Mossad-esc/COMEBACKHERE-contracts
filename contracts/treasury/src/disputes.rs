@@ -4,10 +4,12 @@ use crate::{
     TreasuryContractClient, TreasuryError,
 };
 use multisig::{meets_threshold, record_approval, require_authorized_signer};
+use protocol_math::{apply_bps_i128, is_valid_bps};
 use soroban_sdk::{contractimpl, token, Address, BytesN, Env, Symbol, Vec};
 
-/// Basis-points denominator for `resolve_dispute_split`'s ratio (10_000 = 100.00%).
-pub const BPS_DENOMINATOR: u32 = 10_000;
+// The basis-point denominator (`BPS_DENOMINATOR`, 10 000 = 100.00%) used by
+// `resolve_dispute_split` comes from `crates/protocol-math`, the single
+// protocol-wide definition (#707), and is re-exported at the crate root.
 
 /// Maximum length (in bytes) of the optional resolution `memo` accepted by
 /// `resolve_dispute` and `resolve_dispute_split` (#744).
@@ -206,7 +208,8 @@ impl TreasuryContract {
     }
 
     /// Resolves an open dispute by splitting `dispute.amount` between claimant and
-    /// counterparty according to `claimant_bps` (out of [`BPS_DENOMINATOR`]) instead of the
+    /// counterparty according to `claimant_bps` (out of the protocol-wide
+    /// `BPS_DENOMINATOR` = 10 000 bps, see `crates/protocol-math`) instead of the
     /// binary claimant/counterparty outcome `resolve_dispute` supports (admin-only).
     ///
     /// Design note: like `resolve_dispute`, this only ever pays out `dispute.amount` (the
@@ -231,7 +234,7 @@ impl TreasuryContract {
     ) {
         require_admin(&env, &admin);
         require_not_paused(&env);
-        if claimant_bps > BPS_DENOMINATOR {
+        if !is_valid_bps(claimant_bps) {
             soroban_sdk::panic_with_error!(env, TreasuryError::InvalidSplitRatio);
         }
         if let Err(e) = validate_resolution_memo(&memo) {
@@ -246,13 +249,9 @@ impl TreasuryContract {
         if dispute.status != DisputeStatus::Raised {
             soroban_sdk::panic_with_error!(env, TreasuryError::DisputeAlreadyResolved);
         }
-        let claimant_amount = dispute
-            .amount
-            .checked_mul(claimant_bps as i128)
-            .unwrap_or_else(|| {
-                soroban_sdk::panic_with_error!(env, TreasuryError::ArithmeticOverflow)
-            })
-            / BPS_DENOMINATOR as i128;
+        let claimant_amount = apply_bps_i128(dispute.amount, claimant_bps).unwrap_or_else(|| {
+            soroban_sdk::panic_with_error!(env, TreasuryError::ArithmeticOverflow)
+        });
         let counterparty_amount = dispute.amount - claimant_amount;
         let treasury = env.current_contract_address();
         let token_client = token::Client::new(&env, &token_contract);
