@@ -94,6 +94,10 @@ pub enum WorkflowError {
     /// undo", and so the orchestrator cannot be used to unpause a protocol that
     /// somebody else paused through their own admin key.
     NotEmergencyPaused = 10,
+    /// `migrate` was called while storage is at a schema version it has no
+    /// migration path from. Mirrors `compliance::ContractError::UnexpectedSchemaVersion`
+    /// for the same guard on the workflow's own schema version (#779).
+    UnexpectedSchemaVersion = 11,
 }
 
 /// Storage keys for the workflow contract.
@@ -132,7 +136,18 @@ pub enum DataKey {
     /// Circuit-breaker flag — when `true`, both `execute_with_compliance*`
     /// entrypoints are rejected (#616).
     Paused,
+    /// Monotonically incrementing schema version written by `initialize` and
+    /// targeted by `migrate` (#779). Mirrors the same key in compliance so
+    /// future storage changes can be executed safely with a tested migration path.
+    SchemaVersion,
 }
+
+/// Storage schema version written by `initialize` and targeted by `migrate` (#779).
+///
+/// Version 1 is the first version of the settlement-workflow that tracks schema
+/// versioning. Future incompatible storage layout changes must bump this constant
+/// and add a migration path in `migrate`.
+pub const CURRENT_SCHEMA_VERSION: u32 = 1;
 
 /// Reference on-chain implementation of the `SettlementWorkflow` role described in
 /// `ARCHITECTURE.md`: gates `Treasury::execute_settlement` behind
@@ -169,6 +184,9 @@ impl SettlementWorkflowContract {
         env.storage()
             .instance()
             .set(&DataKey::TreasuryId, &treasury_id);
+        env.storage()
+            .instance()
+            .set(&DataKey::SchemaVersion, &CURRENT_SCHEMA_VERSION);
         env.events().publish(
             (Symbol::new(&env, "workflow_initialized"),),
             (admin, compliance_id, treasury_id),
@@ -291,6 +309,51 @@ impl SettlementWorkflowContract {
             .instance()
             .get(&DataKey::Admin)
             .ok_or(TreasuryError::Unauthorized)
+    }
+
+    /// Returns the schema version written by `initialize`.
+    ///
+    /// Returns `0` for contracts initialized before schema versioning was
+    /// introduced (i.e. before #779), so callers can distinguish
+    /// "never initialized" from "initialized at version 1+".
+    pub fn get_schema_version(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::SchemaVersion)
+            .unwrap_or(0)
+    }
+
+    /// Admin-only storage migration to [`CURRENT_SCHEMA_VERSION`] (#779).
+    ///
+    /// Idempotent: calling it when storage is already at the current version is a
+    /// no-op. Rejects any stored version it has no migration path from, so an
+    /// operator mistake during an upgrade cannot corrupt data.
+    ///
+    /// # Errors
+    /// - [`WorkflowError::Unauthorized`] if `admin` is not the stored administrator.
+    /// - [`WorkflowError::UnexpectedSchemaVersion`] if the stored version is neither
+    ///   the previous nor the current schema version.
+    ///
+    /// # Events
+    /// Publishes `("schema_migrated",) → (from, to)` when a migration runs.
+    pub fn migrate(env: Env, admin: Address) -> Result<u32, WorkflowError> {
+        Self::require_admin(&env, &admin).map_err(|_| WorkflowError::Unauthorized)?;
+        let from = Self::get_schema_version(env.clone());
+        if from == CURRENT_SCHEMA_VERSION {
+            return Ok(from);
+        }
+        if from != CURRENT_SCHEMA_VERSION - 1 {
+            return Err(WorkflowError::UnexpectedSchemaVersion);
+        }
+        // v0 -> v1: no stored data layout changes; only the version marker is bumped.
+        env.storage()
+            .instance()
+            .set(&DataKey::SchemaVersion, &CURRENT_SCHEMA_VERSION);
+        env.events().publish(
+            (Symbol::new(&env, "schema_migrated"),),
+            (from, CURRENT_SCHEMA_VERSION),
+        );
+        Ok(CURRENT_SCHEMA_VERSION)
     }
 
     /// Traps with [`TreasuryError::ContractPaused`] while the workflow is paused (#616).
