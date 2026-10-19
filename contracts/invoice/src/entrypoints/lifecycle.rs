@@ -1,4 +1,5 @@
 use crate::events::{self, InvoiceAmountUpdatedEvent};
+use crate::invoice::{MaybeU64, RefundStatus};
 use crate::refund::{
     calculate_net_refund, refund_recipient, transfer_net_refund, verify_payment_state,
 };
@@ -368,10 +369,33 @@ impl InvoiceContract {
             return Err(InvoiceError::Unauthorized);
         }
 
+        // #702: reject refund requests outside the configurable window.
+        // A window of 0 means no limit (preserving the current behaviour).
+        let refund_window: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::RefundWindow)
+            .unwrap_or(0u64);
+        if refund_window > 0 {
+            if let Some(paid_at) = invoice.paid_at {
+                // paid_at + refund_window may overflow; use saturating_add so a
+                // very large window never wraps to a timestamp in the past.
+                let deadline = paid_at.saturating_add(refund_window);
+                if env.ledger().timestamp() >= deadline {
+                    return Err(InvoiceError::RefundWindowClosed);
+                }
+            }
+        }
+
+        let now = env.ledger().timestamp();
         invoice.status = InvoiceStatus::RefundRequested;
         env.storage()
             .persistent()
             .set(&DataKey::Invoice(id), &invoice);
+        // Store the request timestamp for get_refund_status (#700).
+        env.storage()
+            .persistent()
+            .set(&DataKey::RefundRequestedAt(id), &now);
         append_history(
             &env,
             id,
@@ -528,6 +552,62 @@ impl InvoiceContract {
             .persistent()
             .get(&DataKey::RefundBreakdown(id))
             .ok_or(InvoiceError::NotFound)
+    }
+
+    /// Return the consolidated refund state and fee breakdown for `id` in a
+    /// single call (#700).
+    ///
+    /// Combines the invoice status, the ledger timestamp at which
+    /// `request_refund` was called (if any), and the fee breakdown stored by
+    /// `process_refund` (if any), so clients do not need to combine
+    /// `get_invoice` and `get_refund_breakdown` separately.
+    ///
+    /// Read-only; no auth required. Works regardless of whether the contract
+    /// is paused (quoting refund progress is a read and must remain available).
+    ///
+    /// - `requested_at` is `MaybeU64::None` when no refund has been requested.
+    /// - Fee fields default to `0` when no breakdown has been stored yet
+    ///   (e.g. the invoice is still in `Paid` status or was approved via
+    ///   `approve_refund` rather than `process_refund`).
+    ///
+    /// Errors: [`InvoiceError::NotFound`] if no invoice exists for `id`.
+    pub fn get_refund_status(env: Env, id: u64) -> Result<RefundStatus, InvoiceError> {
+        let invoice: Invoice = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Invoice(id))
+            .ok_or(InvoiceError::NotFound)?;
+
+        let requested_at: MaybeU64 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::RefundRequestedAt(id))
+            .map(MaybeU64::Some)
+            .unwrap_or(MaybeU64::None);
+
+        let breakdown: Option<NetRefund> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::RefundBreakdown(id));
+
+        let (gross_amount, processing_fee, network_fee, net_amount) =
+            breakdown.map_or((0, 0, 0, 0), |b| {
+                (
+                    b.gross_amount,
+                    b.processing_fee,
+                    b.network_fee,
+                    b.net_amount,
+                )
+            });
+
+        Ok(RefundStatus {
+            status: invoice.status,
+            requested_at,
+            gross_amount,
+            processing_fee,
+            network_fee,
+            net_amount,
+        })
     }
 
     /// Reject a refund request. Admin-only. Transitions RefundRequested → Paid.

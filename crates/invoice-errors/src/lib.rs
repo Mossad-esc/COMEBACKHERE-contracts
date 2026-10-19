@@ -62,5 +62,9 @@ declare_contract_error! {
         // MAX_MEMO_BYTES, which would waste storage and make deserialization
         // unpredictable for off-chain consumers.
         MemoTooLong = 31,
+        // Appended for #702: request_refund was called after the configurable
+        // refund window (paid_at + refund_window_secs) has elapsed. Zero means
+        // no limit, preserving the current behaviour.
+        RefundWindowClosed = 32,
     }
 }

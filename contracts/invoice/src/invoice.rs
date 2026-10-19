@@ -5,6 +5,14 @@ pub use invoice_errors::InvoiceError;
 /// USDC on Stellar uses 7 decimal places: 1 USDC = 10_000_000 stroops.
 pub const USDC_FACTOR: i128 = 10_000_000;
 
+/// Maximum allowed late fee expressed in basis points.
+///
+/// `gross_usdc` may exceed `amount_usdc` by at most this many bps of
+/// `amount_usdc`. 1 000 bps = 10 %. This is the single source of truth for
+/// the late-fee cap; `validation.rs` imports and uses this constant rather
+/// than redeclaring it.
+pub const MAX_LATE_FEE_BPS: u32 = 1_000;
+
 /// Maximum number of elements accepted by any batch entrypoint (batch_create_invoice,
 /// batch_expire) per call, to bound per-invocation storage writes and gas.
 pub const MAX_BATCH_SIZE: u32 = 50;
@@ -104,6 +112,47 @@ pub struct StatusTransition {
     pub timestamp: u64,
 }
 
+/// A nullable `u64` wrapper compatible with `#[contracttype]`.
+///
+/// Used to represent an optional timestamp (e.g. `requested_at` before a
+/// refund has been requested). `Option<u64>` is not supported by the
+/// Soroban contract-type macro in the same way, so this enum mirrors the
+/// `MaybeAddress`/`MaybeBytes` pattern already established in this file.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum MaybeU64 {
+    None,
+    Some(u64),
+}
+
+/// Consolidated refund state for an invoice, returned by `get_refund_status`.
+///
+/// Combines the invoice's refund-related status fields with the fee breakdown
+/// stored under `DataKey::RefundBreakdown` (if any), so a client does not
+/// need to call both `get_invoice` and `get_refund_breakdown` to render a
+/// refund progress view.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RefundStatus {
+    /// Current lifecycle status of the invoice.
+    pub status: InvoiceStatus,
+    /// Ledger timestamp at which `request_refund` was called, if applicable.
+    /// `MaybeU64::None` when no refund has been requested.
+    pub requested_at: MaybeU64,
+    /// Gross amount the refund was (or would be) computed from.
+    /// `0` when no refund breakdown has been recorded yet.
+    pub gross_amount: i128,
+    /// Payment-gateway processing fee deducted from the gross amount.
+    /// `0` when no refund breakdown has been recorded yet.
+    pub processing_fee: i128,
+    /// Flat network fee deducted from the gross amount.
+    /// `0` when no refund breakdown has been recorded yet.
+    pub network_fee: i128,
+    /// Net amount the payer received (or will receive).
+    /// `0` when no refund breakdown has been recorded yet.
+    pub net_amount: i128,
+}
+
 /// Storage keys for invoice contract state.
 ///
 /// Used as keys for Soroban instance and persistent storage lookups. Variants
@@ -143,4 +192,11 @@ pub enum DataKey {
     /// Admin-tunable late-fee rate in basis points (1 bps = 0.01%).
     /// Applied to overdue invoices at the discretion of the settlement layer.
     LateFee,
+    /// Admin-configured window (seconds) after payment within which a payer
+    /// may call request_refund. Zero means no limit (current behaviour).
+    RefundWindow,
+    /// Ledger timestamp at which request_refund was called for this invoice.
+    /// Stored so get_refund_status can surface it without re-reading the
+    /// full invoice history.
+    RefundRequestedAt(u64),
 }

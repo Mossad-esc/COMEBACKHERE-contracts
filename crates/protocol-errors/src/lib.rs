@@ -95,6 +95,7 @@ fn invoice_description(e: InvoiceError) -> &'static str {
         DiscountExceedsAmount => "The discount amount exceeds the invoice amount.",
         DiscountDeadlineAfterExpiry => "The discount deadline is after the invoice expiry.",
         MemoTooLong => "The memo field is too long.",
+        RefundWindowClosed => "The refund window for this invoice has closed.",
     }
 }
 
