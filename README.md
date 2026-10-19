@@ -213,3 +213,5 @@ This project is licensed under the **MIT License**.
 
 <!-- handsoff-issue-752 -->
 - #752: Add `get_addresses_by_jurisdiction` paginated read
+<!-- handsoff-issue-760 -->
+- #760: Emit event on `set_blocklist_root`
