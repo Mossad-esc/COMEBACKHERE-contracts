@@ -347,6 +347,7 @@ dependencies = [
  "comebackhere-multisig",
  "comebackhere-tests",
  "comebackhere-treasury",
+ "hex",
  "soroban-sdk",
 ]
 

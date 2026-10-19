@@ -1,4 +1,4 @@
-use compliance::{BlockReason, ComplianceContract, ComplianceContractClient, ContractError};
+use compliance::{BlockReason, ComplianceContract, ComplianceContractClient, ComplianceError};
 use soroban_sdk::{
     symbol_short,
     testutils::{Address as _, Events, Ledger},
@@ -186,7 +186,7 @@ fn revoke_allow_returns_unauthorized_for_non_admin() {
     client.initialize(&admin);
 
     let result = client.try_revoke_allow(&non_admin, &address);
-    assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+    assert_eq!(result, Err(Ok(ComplianceError::Unauthorized)));
 }
 
 #[test]
@@ -201,7 +201,7 @@ fn revoke_allow_returns_contract_paused_when_paused() {
     client.pause_with_reason(&admin, &soroban_sdk::symbol_short!("maint"));
 
     let result = client.try_revoke_allow(&admin, &address);
-    assert_eq!(result, Err(Ok(ContractError::ContractPaused)));
+    assert_eq!(result, Err(Ok(ComplianceError::ContractPaused)));
 }
 
 #[test]
@@ -250,7 +250,7 @@ fn reinitialize_is_rejected() {
     let (env, _admin, _subject, client) = setup();
     let attacker = Address::generate(&env);
     let result = client.try_initialize(&attacker);
-    assert_eq!(result, Err(Ok(ContractError::AlreadyInitialized)));
+    assert_eq!(result, Err(Ok(ComplianceError::AlreadyInitialized)));
 }
 
 // Verification: address_allowed event schema
@@ -568,7 +568,7 @@ fn cancel_admin_transfer_rejects_non_admin() {
     client.transfer_admin(&admin, &new_admin);
     assert_eq!(
         client.try_cancel_admin_transfer(&new_admin),
-        Err(Ok(ContractError::Unauthorized))
+        Err(Ok(ComplianceError::Unauthorized))
     );
     client.accept_admin(&new_admin);
 }
@@ -638,7 +638,7 @@ fn allow_address_returns_unauthorized_for_non_admin() {
     client.initialize(&admin);
 
     let result = client.try_allow_address(&non_admin, &address);
-    assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+    assert_eq!(result, Err(Ok(ComplianceError::Unauthorized)));
 }
 
 #[test]
@@ -653,7 +653,7 @@ fn allow_address_returns_contract_paused_when_paused() {
     client.pause_with_reason(&admin, &soroban_sdk::symbol_short!("maint"));
 
     let result = client.try_allow_address(&admin, &address);
-    assert_eq!(result, Err(Ok(ContractError::ContractPaused)));
+    assert_eq!(result, Err(Ok(ComplianceError::ContractPaused)));
 }
 
 // ── #73 bulk_check_addresses tests ────────────────────────────────────────────
@@ -819,7 +819,7 @@ fn non_admin_cannot_call_allow_address() {
     let (env, _admin, subject, client) = setup();
     let non_admin = Address::generate(&env);
     let result = client.try_allow_address(&non_admin, &subject);
-    assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+    assert_eq!(result, Err(Ok(ComplianceError::Unauthorized)));
 }
 
 #[test]
@@ -827,7 +827,7 @@ fn non_admin_cannot_call_block_address() {
     let (env, _admin, subject, client) = setup();
     let non_admin = Address::generate(&env);
     let result = client.try_block_address(&non_admin, &subject, &None);
-    assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+    assert_eq!(result, Err(Ok(ComplianceError::Unauthorized)));
 }
 
 #[test]
@@ -835,7 +835,7 @@ fn non_admin_cannot_call_clear_address() {
     let (env, _admin, subject, client) = setup();
     let non_admin = Address::generate(&env);
     let result = client.try_clear_address(&non_admin, &subject);
-    assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+    assert_eq!(result, Err(Ok(ComplianceError::Unauthorized)));
 }
 
 #[test]
@@ -844,7 +844,7 @@ fn non_admin_cannot_call_allow_address_until() {
     let non_admin = Address::generate(&env);
     let expires_at = env.ledger().timestamp() + 1000;
     let result = client.try_allow_address_until(&non_admin, &subject, &expires_at);
-    assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+    assert_eq!(result, Err(Ok(ComplianceError::Unauthorized)));
 }
 
 #[test]
@@ -853,7 +853,7 @@ fn non_admin_cannot_call_transfer_admin() {
     let non_admin = Address::generate(&env);
     let new_admin = Address::generate(&env);
     let result = client.try_transfer_admin(&non_admin, &new_admin);
-    assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+    assert_eq!(result, Err(Ok(ComplianceError::Unauthorized)));
 }
 
 // ── #80 export_snapshot tests ─────────────────────────────────────────────────
@@ -943,7 +943,7 @@ fn paused_contract_rejects_allow_address() {
     let (_env, admin, subject, client) = setup();
     client.pause_with_reason(&admin, &soroban_sdk::symbol_short!("maint"));
     let result = client.try_allow_address(&admin, &subject);
-    assert_eq!(result, Err(Ok(ContractError::ContractPaused)));
+    assert_eq!(result, Err(Ok(ComplianceError::ContractPaused)));
 }
 
 #[test]
@@ -952,7 +952,7 @@ fn paused_contract_rejects_allow_address_until() {
     let expires_at = env.ledger().timestamp() + 1000;
     client.pause_with_reason(&admin, &soroban_sdk::symbol_short!("maint"));
     let result = client.try_allow_address_until(&admin, &subject, &expires_at);
-    assert_eq!(result, Err(Ok(ContractError::ContractPaused)));
+    assert_eq!(result, Err(Ok(ComplianceError::ContractPaused)));
 }
 
 #[test]
@@ -1010,7 +1010,7 @@ fn old_admin_allow_address_returns_unauthorized_after_transfer() {
     client.transfer_admin(&admin, &new_admin);
     client.accept_admin(&new_admin);
     let result = client.try_allow_address(&admin, &subject);
-    assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+    assert_eq!(result, Err(Ok(ComplianceError::Unauthorized)));
 }
 
 #[test]
@@ -1020,7 +1020,7 @@ fn old_admin_block_address_returns_unauthorized_after_transfer() {
     client.transfer_admin(&admin, &new_admin);
     client.accept_admin(&new_admin);
     let result = client.try_block_address(&admin, &subject, &None);
-    assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+    assert_eq!(result, Err(Ok(ComplianceError::Unauthorized)));
 }
 
 #[test]
@@ -1030,7 +1030,7 @@ fn old_admin_pause_returns_unauthorized_after_transfer() {
     client.transfer_admin(&admin, &new_admin);
     client.accept_admin(&new_admin);
     let result = client.try_pause_with_reason(&admin, &soroban_sdk::symbol_short!("maint"));
-    assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+    assert_eq!(result, Err(Ok(ComplianceError::Unauthorized)));
 }
 
 // ── #64 allow_address_until expiry boundary conditions ────────────────────────
@@ -1126,7 +1126,7 @@ fn bulk_allow_addresses_over_cap_is_rejected() {
         addrs.push_back(Address::generate(&env));
     }
     let result = client.try_bulk_allow_addresses(&admin, &addrs);
-    assert_eq!(result, Err(Ok(ContractError::BatchTooLarge)));
+    assert_eq!(result, Err(Ok(ComplianceError::BatchTooLarge)));
 }
 
 // ── #57 clear_address key-clearing completeness ───────────────────────────────
@@ -1145,7 +1145,7 @@ fn accept_admin_rejects_non_pending_admin_caller() {
     client.transfer_admin(&admin, &new_admin);
 
     let result = client.try_accept_admin(&unrelated);
-    assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+    assert_eq!(result, Err(Ok(ComplianceError::Unauthorized)));
 }
 
 #[test]
@@ -1157,7 +1157,7 @@ fn accept_admin_rejects_current_admin_self_accepting_others_transfer() {
     // The current admin is not the pending admin, so it must not be able to
     // accept a transfer that was nominated for someone else.
     let result = client.try_accept_admin(&admin);
-    assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+    assert_eq!(result, Err(Ok(ComplianceError::Unauthorized)));
 }
 
 #[test]
@@ -1212,7 +1212,7 @@ fn bulk_block_addresses_over_cap_is_rejected() {
         addrs.push_back(Address::generate(&env));
     }
     let result = client.try_bulk_block_addresses(&admin, &addrs);
-    assert_eq!(result, Err(Ok(ContractError::BatchTooLarge)));
+    assert_eq!(result, Err(Ok(ComplianceError::BatchTooLarge)));
 }
 
 // ── #49 sweep_expired tests ─────────────────────────────────
@@ -1304,7 +1304,7 @@ fn sweep_expired_returns_unauthorized_for_non_admin() {
     client.initialize(&admin);
 
     let result = client.try_sweep_expired(&non_admin, &0);
-    assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+    assert_eq!(result, Err(Ok(ComplianceError::Unauthorized)));
 }
 
 #[test]
@@ -1348,7 +1348,7 @@ fn set_tier_limit_unauthorized_for_non_admin() {
     client.initialize(&admin);
 
     let result = client.try_set_tier_limit(&non_admin, &0, &1_000_000);
-    assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+    assert_eq!(result, Err(Ok(ComplianceError::Unauthorized)));
 }
 
 #[test]
