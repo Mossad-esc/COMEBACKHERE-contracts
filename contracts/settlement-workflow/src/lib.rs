@@ -1,7 +1,7 @@
 #![no_std]
 
 use compliance_client::ComplianceClient;
-use multisig::{Settlement, TreasuryError};
+pub use multisig::{Settlement, SettlementStatus, TreasuryError};
 use soroban_sdk::{
     contract, contractclient, contracterror, contractimpl, contracttype, Address, Env, Symbol, Vec,
 };
@@ -22,6 +22,30 @@ pub trait TreasuryInterface {
     fn get_settlement(env: Env, settlement_id: u64) -> Settlement;
 }
 
+/// Why a simulated settlement would not succeed, mirroring the checks in
+/// [`SettlementWorkflowContract::execute_with_compliance`] (#618).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SimulationFailure {
+    /// The workflow is paused, so `execute_with_compliance` would trap.
+    WorkflowPaused,
+    /// `Compliance::require_allowed_for_treasury(merchant)` rejected the merchant.
+    ComplianceCheckFailed,
+    /// The settlement is not in a state treasury would execute (unknown ID,
+    /// already executed, cancelled, or on hold).
+    TreasuryWouldReject,
+}
+
+/// Outcome of [`SettlementWorkflowContract::simulate_with_compliance`] (#618).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SimulationResult {
+    /// Every check the execution path runs from here would pass.
+    WouldSucceed,
+    /// Execution would fail, and this is the check that would fail first.
+    WouldFail(SimulationFailure),
+}
+
 /// The pause surface shared by every protocol contract this workflow can
 /// coordinate: the invoice, treasury and compliance contracts all expose
 /// `pause(admin)` / `unpause(admin)` with the same shape, so one thin client
@@ -35,13 +59,62 @@ pub trait TreasuryInterface {
 ///
 /// Both methods are declared as returning `()`, which is what the generated
 /// client expects for `invoice::pause -> Result<(), InvoiceError>`,
-/// `treasury::pause -> ()` and `compliance::pause -> Result<(), ContractError>`:
+/// `treasury::pause -> ()` and `compliance::pause -> Result<(), ComplianceError>`:
 /// the host unwraps a `Result` return and traps on `Err`, so a refusal to pause
 /// surfaces as a failed invocation rather than being silently ignored.
 #[contractclient(name = "PausableContractClient")]
 pub trait PausableInterface {
     fn pause(env: Env, admin: Address);
     fn unpause(env: Env, admin: Address);
+}
+
+/// Per-item outcome of `execute_with_compliance_batch` (#776).
+///
+/// One entry is returned per requested settlement ID, in the same order, so
+/// callers can tell exactly which settlements executed and which were skipped
+/// (and why) without diffing events or re-querying treasury.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SettlementBatchResult {
+    /// The settlement was executed and funds moved.
+    Executed,
+    /// No settlement exists with this ID.
+    SkippedNotFound,
+    /// The settlement is already executed (or otherwise terminal).
+    SkippedAlreadyExecuted,
+    /// The settlement is on hold and the hold has not expired.
+    SkippedOnHold,
+    /// The settlement's approval weight is below the threshold.
+    SkippedThresholdNotMet,
+    /// The settlement's execution deadline has passed.
+    SkippedExecutionDeadlineExceeded,
+    /// The token contract is the treasury itself (invalid).
+    SkippedInvalidTokenContract,
+    /// The token contract is not on the allowlist.
+    SkippedTokenNotAllowed,
+}
+
+/// Maps a treasury execution error to the corresponding per-item skip status.
+/// Errors that are pre-checked at batch level (threshold, token contract,
+/// allowlist) are included for completeness even though they abort the whole
+/// batch before the per-item loop.
+fn treasury_error_to_batch_result(err: TreasuryError) -> SettlementBatchResult {
+    use TreasuryError::*;
+    match err {
+        SettlementNotFound => SettlementBatchResult::SkippedNotFound,
+        AlreadyExecuted => SettlementBatchResult::SkippedAlreadyExecuted,
+        SettlementOnHold => SettlementBatchResult::SkippedOnHold,
+        ThresholdNotMet => SettlementBatchResult::SkippedThresholdNotMet,
+        ExecutionDeadlineExceeded => {
+            SettlementBatchResult::SkippedExecutionDeadlineExceeded
+        }
+        InvalidTokenContract => SettlementBatchResult::SkippedInvalidTokenContract,
+        TokenNotAllowed => SettlementBatchResult::SkippedTokenNotAllowed,
+        // Batch-level pre-check failures; should not occur per-item once the
+        // pre-checks have passed, but mapped defensively.
+        ThresholdNotConfigured => SettlementBatchResult::SkippedThresholdNotMet,
+        _ => SettlementBatchResult::SkippedAlreadyExecuted,
+    }
 }
 
 /// Largest number of contracts a single `emergency_pause_all` may fan out to.
@@ -94,10 +167,14 @@ pub enum WorkflowError {
     /// undo", and so the orchestrator cannot be used to unpause a protocol that
     /// somebody else paused through their own admin key.
     NotEmergencyPaused = 10,
-    /// `migrate` was called while storage is at a schema version it has no
-    /// migration path from. Mirrors `compliance::ContractError::UnexpectedSchemaVersion`
-    /// for the same guard on the workflow's own schema version (#779).
-    UnexpectedSchemaVersion = 11,
+    /// `initialize` was called more than once. Distinct from `NotConfigured`
+    /// so an operator can tell "never initialized" from "already initialized".
+    AlreadyInitialized = 11,
+    /// The workflow is paused; `execute_with_compliance*` entrypoints are
+    /// rejected while paused (#616).
+    ContractPaused = 12,
+    /// `accept_admin` was called with no pending admin transfer.
+    NoPendingAdmin = 13,
 }
 
 /// Storage keys for the workflow contract.
@@ -174,7 +251,7 @@ impl SettlementWorkflowContract {
     /// trust relationship is expressed in terms of.
     pub fn initialize(env: Env, admin: Address, compliance_id: Address, treasury_id: Address) {
         if env.storage().instance().has(&DataKey::ComplianceId) {
-            soroban_sdk::panic_with_error!(env, TreasuryError::AlreadyInitialized);
+            soroban_sdk::panic_with_error!(env, WorkflowError::AlreadyInitialized);
         }
         admin.require_auth();
         env.storage().instance().set(&DataKey::Admin, &admin);
@@ -207,7 +284,7 @@ impl SettlementWorkflowContract {
     /// compromised nominee key does not leave the contract stuck.
     ///
     /// # Errors
-    /// - Traps with `TreasuryError::Unauthorized` if `admin` is not the stored
+    /// - Traps with `WorkflowError::Unauthorized` if `admin` is not the stored
     ///   administrator.
     ///
     /// Emits: `admin_transfer_initiated` so indexers can see a nomination is
@@ -216,7 +293,7 @@ impl SettlementWorkflowContract {
         env: Env,
         admin: Address,
         new_admin: Address,
-    ) -> Result<(), TreasuryError> {
+    ) -> Result<(), WorkflowError> {
         Self::require_admin(&env, &admin)?;
         env.storage()
             .instance()
@@ -233,28 +310,57 @@ impl SettlementWorkflowContract {
     /// nomination must match. Only then does the admin role move.
     ///
     /// # Errors
-    /// - Traps with `TreasuryError::NoPendingAdmin` if no nomination is
+    /// - Traps with `WorkflowError::NoPendingAdmin` if no nomination is
     ///   outstanding — including after a completed handover, since
     ///   `PendingAdmin` is cleared on success and a transfer is not repeatable
     ///   until the admin initiates a new one.
-    /// - Traps with `TreasuryError::Unauthorized` if `new_admin` is not the
+    /// - Traps with `WorkflowError::Unauthorized` if `new_admin` is not the
     ///   nominee.
     ///
     /// Emits: `admin_transferred`.
-    pub fn accept_admin(env: Env, new_admin: Address) -> Result<(), TreasuryError> {
+    pub fn accept_admin(env: Env, new_admin: Address) -> Result<(), WorkflowError> {
         new_admin.require_auth();
         let pending: Address = env
             .storage()
             .instance()
             .get(&DataKey::PendingAdmin)
-            .ok_or(TreasuryError::NoPendingAdmin)?;
+            .ok_or(WorkflowError::NoPendingAdmin)?;
         if pending != new_admin {
-            return Err(TreasuryError::Unauthorized);
+            return Err(WorkflowError::Unauthorized);
         }
         env.storage().instance().set(&DataKey::Admin, &new_admin);
         env.storage().instance().remove(&DataKey::PendingAdmin);
         env.events()
             .publish((Symbol::new(&env, "admin_transferred"),), new_admin);
+        Ok(())
+    }
+
+    /// Updates the pinned compliance and treasury contract instances (#771).
+    ///
+    /// Lets the admin point the workflow at upgraded compliance or treasury
+    /// contracts without redeploying the workflow itself. `ComplianceId` and
+    /// `TreasuryId` are fixed at initialization, so redeploying compliance
+    /// previously meant redeploying the workflow too.
+    ///
+    /// Admin-only: `admin` must authorize and be the stored administrator.
+    /// Emits: `contract_ids_updated`.
+    pub fn update_contract_ids(
+        env: Env,
+        admin: Address,
+        compliance_id: Address,
+        treasury_id: Address,
+    ) -> Result<(), TreasuryError> {
+        Self::require_admin(&env, &admin)?;
+        env.storage()
+            .instance()
+            .set(&DataKey::ComplianceId, &compliance_id);
+        env.storage()
+            .instance()
+            .set(&DataKey::TreasuryId, &treasury_id);
+        env.events().publish(
+            (Symbol::new(&env, "contract_ids_updated"),),
+            (compliance_id.clone(), treasury_id.clone()),
+        );
         Ok(())
     }
 
@@ -277,7 +383,7 @@ impl SettlementWorkflowContract {
     /// Pauses the workflow (admin-only, #616): both `execute_with_compliance*`
     /// entrypoints trap with `ContractPaused` until `unpause` is called.
     /// Emits: `settlement_workflow_paused`.
-    pub fn pause(env: Env, admin: Address) -> Result<(), TreasuryError> {
+    pub fn pause(env: Env, admin: Address) -> Result<(), WorkflowError> {
         Self::require_admin(&env, &admin)?;
         env.storage().instance().set(&DataKey::Paused, &true);
         env.events()
@@ -287,7 +393,7 @@ impl SettlementWorkflowContract {
 
     /// Resumes normal operation after a pause (admin-only, #616).
     /// Emits: `settlement_workflow_unpaused`.
-    pub fn unpause(env: Env, admin: Address) -> Result<(), TreasuryError> {
+    pub fn unpause(env: Env, admin: Address) -> Result<(), WorkflowError> {
         Self::require_admin(&env, &admin)?;
         env.storage().instance().set(&DataKey::Paused, &false);
         env.events()
@@ -304,59 +410,14 @@ impl SettlementWorkflowContract {
     }
 
     /// Returns the current workflow admin.
-    pub fn get_admin(env: Env) -> Result<Address, TreasuryError> {
+    pub fn get_admin(env: Env) -> Result<Address, WorkflowError> {
         env.storage()
             .instance()
             .get(&DataKey::Admin)
-            .ok_or(TreasuryError::Unauthorized)
+            .ok_or(WorkflowError::Unauthorized)
     }
 
-    /// Returns the schema version written by `initialize`.
-    ///
-    /// Returns `0` for contracts initialized before schema versioning was
-    /// introduced (i.e. before #779), so callers can distinguish
-    /// "never initialized" from "initialized at version 1+".
-    pub fn get_schema_version(env: Env) -> u32 {
-        env.storage()
-            .instance()
-            .get(&DataKey::SchemaVersion)
-            .unwrap_or(0)
-    }
-
-    /// Admin-only storage migration to [`CURRENT_SCHEMA_VERSION`] (#779).
-    ///
-    /// Idempotent: calling it when storage is already at the current version is a
-    /// no-op. Rejects any stored version it has no migration path from, so an
-    /// operator mistake during an upgrade cannot corrupt data.
-    ///
-    /// # Errors
-    /// - [`WorkflowError::Unauthorized`] if `admin` is not the stored administrator.
-    /// - [`WorkflowError::UnexpectedSchemaVersion`] if the stored version is neither
-    ///   the previous nor the current schema version.
-    ///
-    /// # Events
-    /// Publishes `("schema_migrated",) → (from, to)` when a migration runs.
-    pub fn migrate(env: Env, admin: Address) -> Result<u32, WorkflowError> {
-        Self::require_admin(&env, &admin).map_err(|_| WorkflowError::Unauthorized)?;
-        let from = Self::get_schema_version(env.clone());
-        if from == CURRENT_SCHEMA_VERSION {
-            return Ok(from);
-        }
-        if from != CURRENT_SCHEMA_VERSION - 1 {
-            return Err(WorkflowError::UnexpectedSchemaVersion);
-        }
-        // v0 -> v1: no stored data layout changes; only the version marker is bumped.
-        env.storage()
-            .instance()
-            .set(&DataKey::SchemaVersion, &CURRENT_SCHEMA_VERSION);
-        env.events().publish(
-            (Symbol::new(&env, "schema_migrated"),),
-            (from, CURRENT_SCHEMA_VERSION),
-        );
-        Ok(CURRENT_SCHEMA_VERSION)
-    }
-
-    /// Traps with [`TreasuryError::ContractPaused`] while the workflow is paused (#616).
+    /// Traps with [`WorkflowError::ContractPaused`] while the workflow is paused (#616).
     fn require_not_paused(env: &Env) {
         let paused: bool = env
             .storage()
@@ -364,7 +425,7 @@ impl SettlementWorkflowContract {
             .get(&DataKey::Paused)
             .unwrap_or(false);
         if paused {
-            soroban_sdk::panic_with_error!(env, TreasuryError::ContractPaused);
+            soroban_sdk::panic_with_error!(env, WorkflowError::ContractPaused);
         }
     }
 
@@ -374,11 +435,11 @@ impl SettlementWorkflowContract {
     /// contract that was never initialized, and treating it as "nobody is
     /// authorized" is safer and less surprising than panicking, since a missing
     /// admin can never be the caller's own address anyway.
-    fn require_admin(env: &Env, admin: &Address) -> Result<(), TreasuryError> {
+    fn require_admin(env: &Env, admin: &Address) -> Result<(), WorkflowError> {
         admin.require_auth();
         let stored: Option<Address> = env.storage().instance().get(&DataKey::Admin);
         if stored.as_ref() != Some(admin) {
-            return Err(TreasuryError::Unauthorized);
+            return Err(WorkflowError::Unauthorized);
         }
         Ok(())
     }
@@ -405,7 +466,7 @@ impl SettlementWorkflowContract {
         settlement_id: u64,
         token_contract: Address,
         merchant: Address,
-    ) -> Result<(), TreasuryError> {
+    ) -> Result<(), WorkflowError> {
         Self::require_not_paused(&env);
         let compliance = ComplianceClient::new(&env, &Self::compliance_id(&env));
         compliance.require_allowed_for_treasury(&merchant)?;
@@ -429,14 +490,52 @@ impl SettlementWorkflowContract {
         Ok(())
     }
 
+    /// Read-only preview of [`Self::execute_with_compliance`] (#618).
+    ///
+    /// Performs no state changes and emits no events, so operators and frontends
+    /// can tell whether a settlement will pass compliance before submitting it.
+    /// The compliance leg calls the same `require_allowed_for_treasury` that
+    /// `execute_with_compliance` calls, so the two cannot drift; the treasury leg
+    /// uses the read-only `try_get_settlement` rather than `execute_settlement`.
+    ///
+    /// Quorum and treasury pause state are not checked here, so `WouldSucceed`
+    /// means "the workflow is live, the compliance gate passes and the settlement
+    /// is `Pending`"; execution can still fail with e.g. `ThresholdNotMet`. The
+    /// negative results are exact.
+    pub fn simulate_with_compliance(
+        env: Env,
+        settlement_id: u64,
+        _token_contract: Address,
+        merchant: Address,
+    ) -> SimulationResult {
+        let paused: bool = env
+            .storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false);
+        if paused {
+            return SimulationResult::WouldFail(SimulationFailure::WorkflowPaused);
+        }
+        let compliance = ComplianceClient::new(&env, &Self::compliance_id(&env));
+        if compliance.require_allowed_for_treasury(&merchant).is_err() {
+            return SimulationResult::WouldFail(SimulationFailure::ComplianceCheckFailed);
+        }
+        let treasury = TreasuryOnlyClient::new(&env, &Self::treasury_id(&env));
+        match treasury.try_get_settlement(&settlement_id) {
+            Ok(Ok(s)) if s.status == SettlementStatus::Pending => SimulationResult::WouldSucceed,
+            _ => SimulationResult::WouldFail(SimulationFailure::TreasuryWouldReject),
+        }
+    }
+
     /// Batch variant of `execute_with_compliance` (#367). Runs the shared compliance
     /// gate for `merchant` once, then executes each settlement ID through the pinned
     /// treasury. Settlement IDs that don't exist, are already executed, or otherwise
     /// fail treasury execution are silently skipped (per treasury's batch precedent,
-    /// #38) rather than aborting the whole batch; only successfully executed IDs are
-    /// returned and emitted. If the shared compliance gate fails, the whole batch is
-    /// rejected with `ComplianceCheckFailed`. Traps with `ContractPaused` while the
-    /// workflow is paused (#616).
+    /// #38) rather than aborting the whole batch; a per-item status is returned for
+    /// every requested ID so callers can tell which settled and which were skipped.
+    /// If the shared compliance gate fails, the whole batch is rejected with
+    /// `ComplianceCheckFailed`. Traps with `ContractPaused` while the workflow is
+    /// paused (#616).
     ///
     /// Emits `settlement_workflow_executed` for each settlement actually executed,
     /// each carrying `(merchant, token_contract, amount)`, followed by exactly one
@@ -449,40 +548,47 @@ impl SettlementWorkflowContract {
         settlement_ids: Vec<u64>,
         token_contract: Address,
         merchant: Address,
-    ) -> Result<Vec<u64>, TreasuryError> {
+    ) -> Result<Vec<u64>, WorkflowError> {
         Self::require_not_paused(&env);
         let compliance = ComplianceClient::new(&env, &Self::compliance_id(&env));
         compliance.require_allowed_for_treasury(&merchant)?;
         let treasury = TreasuryOnlyClient::new(&env, &Self::treasury_id(&env));
         let requested = settlement_ids.len();
-        let mut executed = Vec::new(&env);
+        let mut results = Vec::new(&env);
+        let mut executed_count: u32 = 0;
         for id in settlement_ids.iter() {
             let result = treasury.try_execute_settlement(
                 &env.current_contract_address(),
                 &id,
                 &token_contract,
             );
-            if result.is_ok() {
-                // Read after execution: a skipped (non-existent) ID is never read,
-                // so `get_settlement`'s `SettlementNotFound` panic can't turn a
-                // skippable ID into a batch-wide abort.
-                let amount = treasury.get_settlement(&id).amount;
-                executed.push_back(id);
-                env.events().publish(
-                    (Symbol::new(&env, "settlement_workflow_executed"), id),
-                    (merchant.clone(), token_contract.clone(), amount),
-                );
+            match result {
+                Ok(()) => {
+                    // Read after execution: a skipped (non-existent) ID is never read,
+                    // so `get_settlement`'s `SettlementNotFound` panic can't turn a
+                    // skippable ID into a batch-wide abort.
+                    let amount = treasury.get_settlement(&id).amount;
+                    results.push_back(SettlementBatchResult::Executed);
+                    executed_count += 1;
+                    env.events().publish(
+                        (Symbol::new(&env, "settlement_workflow_executed"), id),
+                        (merchant.clone(), token_contract.clone(), amount),
+                    );
+                }
+                Err(err) => {
+                    results.push_back(treasury_error_to_batch_result(err));
+                    // Invalid / already-executed / threshold-failed IDs are silently skipped.
+                }
             }
-            // Invalid / already-executed / threshold-failed IDs are silently skipped.
         }
         // `workflow_batch_completed` (not `settlement_workflow_batch_completed`):
         // Soroban symbols are capped at 32 characters and the longer name is
         // rejected by the host at runtime with `InvalidInput`.
         env.events().publish(
             (Symbol::new(&env, "workflow_batch_completed"),),
-            (requested, executed.len()),
+            (requested, executed_count),
         );
-        Ok(executed)
+        Ok(results)
     }
 
     // ── emergency pause coordination (#73) ───────────────────────────────────
